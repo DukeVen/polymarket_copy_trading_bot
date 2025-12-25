@@ -31,18 +31,18 @@ const doTrading = async (clobClient: ClobClient) => {
     for (const trade of temp_trades) {
         console.log('Trade to copy:', trade);
         // const market = await clobClient.getMarket(trade.conditionId);
-        const my_positions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${PROXY_WALLET}`
-        );
-        const user_positions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
-        );
-        const my_position = my_positions.find(
-            (position: UserPositionInterface) => position.conditionId === trade.conditionId
-        );
-        const user_position = user_positions.find(
-            (position: UserPositionInterface) => position.conditionId === trade.conditionId
-        );
+        //const my_positions: UserPositionInterface[] = await fetchData(
+        //    `https://data-api.polymarket.com/positions?user=${PROXY_WALLET}`
+        //);
+        //const user_positions: UserPositionInterface[] = await fetchData(
+        //    `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
+        //);
+        //const my_position = my_positions.find(
+        //    (position: UserPositionInterface) => position.conditionId === trade.conditionId
+        //);
+        //const user_position = user_positions.find(
+        //    (position: UserPositionInterface) => position.conditionId === trade.conditionId
+        //);
         const my_balance = await getMyBalance(PROXY_WALLET);
         const user_balance = await getMyBalance(USER_ADDRESS);
         console.log('My current balance:', my_balance);
