@@ -315,14 +315,6 @@ Set `DRY_RUN=true` and monitor console output for simulated trades.
 
 ---
 
-## 📞 Support
-
-For questions or custom development:
-
-**Telegram**: [https://t.me/blacksky_jose](https://t.me/blacksky_jose)
-
----
-
 ## 📄 License
 
 ISC
