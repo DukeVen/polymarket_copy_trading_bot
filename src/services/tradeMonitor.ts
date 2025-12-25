@@ -20,7 +20,7 @@ let temp_trades: UserActivityInterface[] = [];
 
 const init = async () => {
     temp_trades = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
-    console.log('temp_trades', temp_trades);
+    //console.log('temp_trades', temp_trades);
 };
 
 const fetchTradeData = async () => {
