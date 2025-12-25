@@ -56,6 +56,7 @@ const fetchTradeData = async () => {
                     bot: false,
                     botExcutedTime: 0,
                 });
+                console.log("new trade:")
                 await newTrade.save();
                 temp_trades.push(newTrade as UserActivityInterface);
                 console.log('🆕 New trade detected:', {
