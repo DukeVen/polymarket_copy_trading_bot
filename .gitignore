@@ -47,6 +47,3 @@ jest-test-results.json
 # Lint and formatting cache
 .eslintcache
 .prettiercache
-
-# Readme.md
-README.md
