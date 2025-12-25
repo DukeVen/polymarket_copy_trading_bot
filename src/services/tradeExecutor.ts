@@ -37,6 +37,7 @@ const doTrading = async (clobClient: ClobClient) => {
         const user_positions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
         );
+        console.log(user_positions);
         const my_position = my_positions.find(
             (position: UserPositionInterface) => position.conditionId === trade.conditionId
         );

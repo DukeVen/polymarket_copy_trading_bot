@@ -24,7 +24,61 @@ const init = async () => {
 };
 
 const fetchTradeData = async () => {
+    try {
+        // Fetch user activities from Polymarket API
+        const userActivities: UserActivityInterface[] = await fetchData(
+            `https://data-api.polymarket.com/activities?user=${USER_ADDRESS}`
+        );
 
+        // Fetch user positions
+        const userPositions: UserPositionInterface[] = await fetchData(
+            `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
+        );
+
+        // Filter and process new trades
+        for (const activity of userActivities) {
+            // Skip if not a trade
+            if (activity.type !== 'TRADE') continue;
+
+            // Skip if trade is too old
+            const hoursDiff = moment().diff(moment.unix(activity.timestamp), 'hours');
+            if (hoursDiff > TOO_OLD_TIMESTAMP) continue;
+
+            // Check if trade already exists in database
+            const existingTrade = temp_trades.find(
+                (trade) => trade.transactionHash === activity.transactionHash
+            );
+
+            if (!existingTrade) {
+                // Save new trade to database
+                const newTrade = new UserActivity({
+                    ...activity,
+                    bot: false,
+                    botExcutedTime: 0,
+                });
+                await newTrade.save();
+                temp_trades.push(newTrade as UserActivityInterface);
+                console.log('🆕 New trade detected:', {
+                    title: activity.title,
+                    side: activity.side,
+                    size: activity.size,
+                    price: activity.price,
+                    timestamp: moment.unix(activity.timestamp).format('YYYY-MM-DD HH:mm:ss'),
+                });
+            }
+        }
+
+        // Update positions in database
+        for (const position of userPositions) {
+            await UserPosition.findOneAndUpdate(
+                { conditionId: position.conditionId },
+                { ...position },
+                { upsert: true, new: true }
+            );
+        }
+    } catch (error) {
+        console.error('Error fetching trade data:', error);
+    }
 };
 
 const tradeMonitor = async () => {
