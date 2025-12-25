@@ -28,7 +28,7 @@ export const main = async () => {
 
     const clobClient = await createClobClient();
     tradeMonitor();  //Monitor target user's transactions
-    tradeExecutor(clobClient);  //Execute transactions on your wallet
+    //tradeExecutor(clobClient);  //Execute transactions on your wallet
 };
 
 main();
