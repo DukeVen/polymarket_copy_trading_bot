@@ -27,7 +27,7 @@ const fetchTradeData = async () => {
     try {
         // Fetch user activities from Polymarket API
         const userActivities: UserActivityInterface[] = await fetchData(
-            `https://data-api.polymarket.com/activities?user=${USER_ADDRESS}`
+            `https://data-api.polymarket.com/activity?user=${USER_ADDRESS}`
         );
 
         // Fetch user positions

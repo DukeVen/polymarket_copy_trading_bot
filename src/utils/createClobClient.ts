@@ -39,7 +39,7 @@ const createClobClient = async (): Promise<ClobClient> => {
         SignatureType.POLY_GNOSIS_SAFE,
         PROXY_WALLET as string
     );
-    console.log(clobClient);
+    //console.log(clobClient);
     return clobClient;
 };
 
