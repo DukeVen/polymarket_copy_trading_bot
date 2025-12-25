@@ -17,13 +17,9 @@ const UserActivity = getUserActivityModel(USER_ADDRESS);
 const UserPosition = getUserPositionModel(USER_ADDRESS);
 
 let temp_trades: UserActivityInterface[] = [];
-let botStartTime: number = 0;
 
 const init = async () => {
     temp_trades = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
-    botStartTime = moment().unix(); // Track when bot started
-    console.log('Bot started at:', moment.unix(botStartTime).format('YYYY-MM-DD HH:mm:ss'));
-    console.log('Will only copy trades that occur AFTER this time');
     //console.log('temp_trades', temp_trades);
 };
 
@@ -43,9 +39,6 @@ const fetchTradeData = async () => {
         for (const activity of userActivities) {
             // Skip if not a trade
             if (activity.type !== 'TRADE') continue;
-
-            // Skip if trade happened BEFORE bot started (only copy new trades going forward)
-            if (activity.timestamp < botStartTime) continue;
 
             // Skip if trade is too old
             const hoursDiff = moment().diff(moment.unix(activity.timestamp), 'hours');
