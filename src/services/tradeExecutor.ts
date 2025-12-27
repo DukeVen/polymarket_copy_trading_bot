@@ -119,7 +119,23 @@ const calculateBotTrade = async (trade: UserActivityInterface): Promise<{
     const { asset, side, size: tradeSize } = trade;
     
     // Get initial target position (what they had when bot started)
-    const initialTargetSize = await getInitialTargetPosition(asset);
+    let initialTargetSize = await getInitialTargetPosition(asset);
+    
+    // If no initial position exists for this asset, save it as 0 (new position after bot started)
+    if (initialTargetSize === 0) {
+        const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
+        if (!existingInitial) {
+            const startTimestamp = Math.floor(Date.now() / 1000);
+            await new InitialTargetPosition({
+                conditionId: trade.conditionId,
+                asset: asset,
+                size: 0,
+                outcomeIndex: trade.outcomeIndex,
+                startTimestamp: startTimestamp,
+            }).save();
+            console.log(`   📌 New asset detected, setting initial position to 0`);
+        }
+    }
     
     // Get FRESH current target position from API (avoid stale cached data)
     const currentTargetSize = await getFreshTargetPosition(asset);
