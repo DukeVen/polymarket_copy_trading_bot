@@ -5,7 +5,7 @@ import { getUserActivityModel, getBotPositionModel, getInitialTargetPositionMode
 import fetchData from '../utils/fetchData';
 import spinner from '../utils/spinner';
 import getMyBalance from '../utils/getMyBalance';
-import { getInitialTargetPosition, getCurrentTargetPosition } from './tradeMonitor';
+import { getInitialTargetPosition } from './tradeMonitor';
 
 const USER_ADDRESS = ENV.USER_ADDRESS;
 const RETRY_LIMIT = ENV.RETRY_LIMIT;
@@ -17,6 +17,20 @@ let temp_trades: UserActivityInterface[] = [];
 const UserActivity = getUserActivityModel(USER_ADDRESS);
 const BotPosition = getBotPositionModel();
 const InitialTargetPosition = getInitialTargetPositionModel(USER_ADDRESS);
+
+// Fetch FRESH target position from API to avoid stale data
+const getFreshTargetPosition = async (asset: string): Promise<number> => {
+    try {
+        const positions: UserPositionInterface[] = await fetchData(
+            `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
+        );
+        const position = positions.find(p => p.asset === asset);
+        return position ? position.size : 0;
+    } catch (error) {
+        console.error('Error fetching fresh position:', error);
+        return 0;
+    }
+};
 
 // Execute a simple market order
 const executeOrder = async (
@@ -105,8 +119,8 @@ const calculateBotTrade = async (trade: UserActivityInterface): Promise<{
     // Get initial target position (what they had when bot started)
     const initialTargetSize = await getInitialTargetPosition(asset);
     
-    // Get current target position (what they have now)
-    const currentTargetSize = getCurrentTargetPosition(asset);
+    // Get FRESH current target position from API (avoid stale cached data)
+    const currentTargetSize = await getFreshTargetPosition(asset);
     
     // Get bot's current position
     const botCurrentSize = await getBotPosition(asset);
