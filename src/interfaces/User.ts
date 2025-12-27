@@ -55,3 +55,25 @@ export interface UserPositionInterface {
     endDate: string;
     negativeRisk: boolean;
 }
+
+// Track bot's own positions
+export interface BotPositionInterface {
+    _id: mongoose.Types.ObjectId;
+    conditionId: string;
+    asset: string;
+    size: number; // How many shares the bot actually owns
+    outcomeIndex: number;
+    title: string;
+    outcome: string;
+    lastUpdated: number; // Timestamp
+}
+
+// Track initial target positions when bot starts
+export interface InitialTargetPositionInterface {
+    _id: mongoose.Types.ObjectId;
+    conditionId: string;
+    asset: string;
+    size: number; // Target's position size when bot started
+    outcomeIndex: number;
+    startTimestamp: number; // When bot started tracking
+}

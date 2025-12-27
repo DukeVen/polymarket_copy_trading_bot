@@ -1,7 +1,7 @@
 import moment from 'moment';
 import { ENV } from '../config/env';
 import { UserActivityInterface, UserPositionInterface } from '../interfaces/User';
-import { getUserActivityModel, getUserPositionModel } from '../models/userHistory';
+import { getUserActivityModel, getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
 
 const USER_ADDRESS = ENV.USER_ADDRESS;
@@ -15,12 +15,46 @@ if (!USER_ADDRESS) {
 
 const UserActivity = getUserActivityModel(USER_ADDRESS);
 const UserPosition = getUserPositionModel(USER_ADDRESS);
+const InitialTargetPosition = getInitialTargetPositionModel(USER_ADDRESS);
 
 let temp_trades: UserActivityInterface[] = [];
+let isInitialized = false;
+let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // key: asset (token ID)
 
 const init = async () => {
     temp_trades = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
-    //console.log('temp_trades', temp_trades);
+    
+    // Check if we've already saved initial positions
+    const existingInitialPositions = await InitialTargetPosition.find().exec();
+    
+    if (existingInitialPositions.length === 0) {
+        console.log('📸 Taking snapshot of target\'s initial positions...');
+        
+        // Fetch and save target's current positions as initial state
+        const userPositions: UserPositionInterface[] = await fetchData(
+            `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
+        );
+        
+        const startTimestamp = Math.floor(Date.now() / 1000);
+        
+        for (const position of userPositions) {
+            const initialPosition = new InitialTargetPosition({
+                conditionId: position.conditionId,
+                asset: position.asset,
+                size: position.size,
+                outcomeIndex: position.outcomeIndex,
+                startTimestamp: startTimestamp,
+            });
+            await initialPosition.save();
+            console.log(`  ✓ Saved initial position: ${position.title} - ${position.outcome}: ${position.size} shares`);
+        }
+        
+        console.log(`✅ Snapshot complete. Bot will only copy NEW trades from now on.\n`);
+    } else {
+        console.log('✅ Initial positions already saved. Resuming from previous state.\n');
+    }
+    
+    isInitialized = true;
 };
 
 const fetchTradeData = async () => {
@@ -56,7 +90,6 @@ const fetchTradeData = async () => {
                     bot: false,
                     botExcutedTime: 0,
                 });
-                console.log("new trade:")
                 await newTrade.save();
                 temp_trades.push(newTrade as UserActivityInterface);
                 console.log('🆕 New trade detected:', {
@@ -76,6 +109,9 @@ const fetchTradeData = async () => {
                 { ...position },
                 { upsert: true, new: true }
             );
+            
+            // Update current positions map (keyed by asset/token ID)
+            currentTargetPositions.set(position.asset, position);
         }
     } catch (error) {
         console.error('Error fetching trade data:', error);
@@ -89,6 +125,17 @@ const tradeMonitor = async () => {
         await fetchTradeData();     //Fetch all user activities
         await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));     //Fetch user activities every second
     }
+};
+
+// Export functions to get initial and current target positions
+export const getInitialTargetPosition = async (asset: string) => {
+    const initialPos = await InitialTargetPosition.findOne({ asset }).exec();
+    return initialPos ? initialPos.size : 0;
+};
+
+export const getCurrentTargetPosition = (asset: string): number => {
+    const position = currentTargetPositions.get(asset);
+    return position ? position.size : 0;
 };
 
 export default tradeMonitor;

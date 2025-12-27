@@ -76,4 +76,44 @@ const getUserActivityModel = (walletAddress: string) => {
     return mongoose.model(collectionName, activitySchema, collectionName);
 };
 
-export { getUserPositionModel, getUserActivityModel };
+// Bot position schema - tracks what the bot actually owns
+const botPositionSchema = new Schema({
+    _id: {
+        type: Schema.Types.ObjectId,
+        required: true,
+        auto: true,
+    },
+    conditionId: { type: String, required: true },
+    asset: { type: String, required: true },
+    size: { type: Number, required: true, default: 0 },
+    outcomeIndex: { type: Number, required: true },
+    title: { type: String, required: false },
+    outcome: { type: String, required: false },
+    lastUpdated: { type: Number, required: true },
+});
+
+// Initial target position schema - snapshots target's positions when bot starts
+const initialTargetPositionSchema = new Schema({
+    _id: {
+        type: Schema.Types.ObjectId,
+        required: true,
+        auto: true,
+    },
+    conditionId: { type: String, required: true },
+    asset: { type: String, required: true },
+    size: { type: Number, required: true },
+    outcomeIndex: { type: Number, required: true },
+    startTimestamp: { type: Number, required: true },
+});
+
+const getBotPositionModel = () => {
+    const collectionName = 'bot_positions';
+    return mongoose.model(collectionName, botPositionSchema, collectionName);
+};
+
+const getInitialTargetPositionModel = (walletAddress: string) => {
+    const collectionName = `initial_target_positions_${walletAddress}`;
+    return mongoose.model(collectionName, initialTargetPositionSchema, collectionName);
+};
+
+export { getUserPositionModel, getUserActivityModel, getBotPositionModel, getInitialTargetPositionModel };
