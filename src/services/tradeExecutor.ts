@@ -312,6 +312,10 @@ const tradeExcutor = async (clobClient: ClobClient) => {
         console.log(`Orders will be simulated but NOT actually executed\n`);
     }
     console.log(`Executing Copy Trading`);
+    
+    // Wait a bit for tradeMonitor to fetch initial trades
+    console.log('Waiting for trade monitor to initialize...');
+    await new Promise((resolve) => setTimeout(resolve, 5000));
 
     while (true) {
         await readTempTrade();
