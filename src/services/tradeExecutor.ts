@@ -226,6 +226,19 @@ const doTrading = async (clobClient: ClobClient) => {
             if (ENV.DRY_RUN) {
                 console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares @ ~$${trade.price}`);
                 console.log(`   Estimated cost: $${estimatedCost.toFixed(2)}`);
+                
+                // Update bot's position even in dry run to track what we "would have" done
+                const sizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
+                const newSize = await updateBotPosition(
+                    trade.asset,
+                    trade.conditionId,
+                    trade.outcomeIndex,
+                    sizeChange,
+                    trade.title,
+                    trade.outcome
+                );
+                
+                console.log(`   Bot's simulated new position: ${newSize} shares`);
             } else {
                 console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares @ ~$${trade.price}`);
                 
