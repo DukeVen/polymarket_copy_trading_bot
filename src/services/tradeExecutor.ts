@@ -25,9 +25,11 @@ const getFreshTargetPosition = async (asset: string): Promise<number> => {
             `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
         );
         const position = positions.find(p => p.asset === asset);
-        return position ? position.size : 0;
+        const size = position ? position.size : 0;
+        console.log(`   [Fresh API] Asset ${asset.substring(0, 10)}... current: ${size} shares`);
+        return size;
     } catch (error) {
-        console.error('Error fetching fresh position:', error);
+        console.error('⚠️ Error fetching fresh position from API:', error);
         return 0;
     }
 };
