@@ -97,6 +97,21 @@ const fetchPositionData = async () => {
             const currentSize = position.size;
             const delta = currentSize - previousSize;
 
+            // Save initial position if this is the first time we're seeing this asset
+            if (!previousTargetPositions.has(position.asset)) {
+                const existingInitial = await InitialTargetPosition.findOne({ asset: position.asset }).exec();
+                if (!existingInitial) {
+                    const startTimestamp = Math.floor(Date.now() / 1000);
+                    await new InitialTargetPosition({
+                        conditionId: position.conditionId,
+                        asset: position.asset,
+                        size: 0, // New position after bot started - initial is 0
+                        outcomeIndex: position.outcomeIndex,
+                        startTimestamp: startTimestamp,
+                    }).save();
+                }
+            }
+
             // Emit position change events and log
             if (Math.abs(delta) > 0.0001) {
                 let changeType: 'new' | 'increase' | 'decrease' | 'closed';
