@@ -141,13 +141,16 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     // Round to avoid floating point precision issues
     const botSizeChange = Math.round((botTargetSize - botCurrentSize) * 1000000) / 1000000;
     
-    console.log(`\n📊 Position Analysis for ${title} - ${outcome}:`);
-    console.log(`   Target initial: ${initialTargetSize} shares`);
-    console.log(`   Target current: ${currentTargetSize} shares`);
-    console.log(`   Target change: ${targetChange > 0 ? '+' : ''}${targetChange}`);
-    console.log(`   Bot current: ${botCurrentSize} shares`);
-    console.log(`   Bot should have: ${botTargetSize} shares`);
-    console.log(`   Bot needs to: ${botSizeChange > 0 ? 'BUY' : 'SELL'} ${Math.abs(botSizeChange)} shares`);
+    // Only log detailed analysis if there's a trade to make
+    if (Math.abs(botSizeChange) >= 0.0001) {
+        console.log(`\n📊 Position Analysis for ${title} - ${outcome}:`);
+        console.log(`   Target initial: ${initialTargetSize} shares`);
+        console.log(`   Target current: ${currentTargetSize} shares`);
+        console.log(`   Target change: ${targetChange > 0 ? '+' : ''}${targetChange}`);
+        console.log(`   Bot current: ${botCurrentSize} shares`);
+        console.log(`   Bot should have: ${botTargetSize} shares`);
+        console.log(`   Bot needs to: ${botSizeChange > 0 ? 'BUY' : 'SELL'} ${Math.abs(botSizeChange)} shares`);
+    }
     
     if (Math.abs(botSizeChange) < 0.0001) {
         return {
@@ -205,6 +208,7 @@ const processPositions = async (clobClient: ClobClient) => {
     // Fetch target's current positions
     console.log('\n📡 Fetching target\'s current positions...');
     const targetPositions = await fetchTargetPositions();
+    // TODO: only fetches max 100 positions?
     console.log(`✅ Fetched ${targetPositions.length} positions from API\n`);
     
     if (targetPositions.length === 0) {
@@ -212,22 +216,22 @@ const processPositions = async (clobClient: ClobClient) => {
     }
     
     for (const position of targetPositions) {
-        console.log('\n' + '='.repeat(60));
-        console.log(`🔍 Processing target's position:`);
-        console.log(`   ${position.title} - ${position.outcome}`);
-        console.log(`   Target: ${position.size} shares @ avg $${position.avgPrice}`);
-        console.log('='.repeat(60));
-        
         try {
             // Calculate what the bot should do
             const botTrade = await calculateBotTrade(position);
             
-            console.log(`\n💡 Decision: ${botTrade.reason}`);
-            
             if (!botTrade.shouldTrade) {
-                console.log('⏭️  Skipping - no action needed.\n');
-                continue;
+                continue; // Skip silently if no action needed
             }
+            
+            // Only log if there's a meaningful action to execute
+            console.log('\n' + '='.repeat(60));
+            console.log(`🔍 Processing target's position:`);
+            console.log(`   ${position.title} - ${position.outcome}`);
+            console.log(`   Target: ${position.size} shares @ avg $${position.avgPrice}`);
+            console.log('='.repeat(60));
+            
+            console.log(`\n💡 Decision: ${botTrade.reason}`);
             
             // Check balance before trading
             const my_balance = await getMyBalance(PROXY_WALLET);
@@ -285,11 +289,11 @@ const processPositions = async (clobClient: ClobClient) => {
                 }
             }
             
+            console.log(''); // Empty line for spacing
+            
         } catch (error) {
             console.error('❌ Error processing position:', error);
         }
-        
-        console.log(''); // Empty line for spacing
     }
 };
 
