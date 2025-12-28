@@ -5,6 +5,7 @@ import { getUserPositionModel, getInitialTargetPositionModel } from '../models/u
 import fetchPositions from '../utils/fetchPositions';
 import fetchData from '../utils/fetchData';
 import APIRateLimiter from '../utils/apiRateLimiter';
+import spinner from '../utils/spinner';
 import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmitter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
@@ -37,6 +38,9 @@ const init = () => {
 
 const fetchActivitiesAndProcessTrades = async () => {
     try {
+        // Start spinner
+        spinner.start('Checking for new activities...');
+        
         // Fetch recent activities from Polymarket API
         activitiesRateLimiter.track();
         const activities: UserActivityInterface[] = await fetchData(
@@ -44,6 +48,7 @@ const fetchActivitiesAndProcessTrades = async () => {
         );
 
         if (activities.length === 0) {
+            spinner.stop();
             return;
         }
 
@@ -54,8 +59,12 @@ const fetchActivitiesAndProcessTrades = async () => {
             .sort((a, b) => a.timestamp - b.timestamp); // Process oldest first
 
         if (newTrades.length === 0) {
+            spinner.stop();
             return;
         }
+
+        // Stop spinner before processing
+        spinner.succeed(`Found ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
 
         // Group all new trades by asset - process the net change per asset (aggregation)
         // TODO add aggregation time window?
@@ -73,6 +82,7 @@ const fetchActivitiesAndProcessTrades = async () => {
 
 
     } catch (error) {
+        spinner.fail('Error fetching activities');
         console.error('Error fetching activities:', error);
     }
 };

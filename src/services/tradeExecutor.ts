@@ -10,6 +10,8 @@ const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 const DRY_RUN = ENV.DRY_RUN;
 
+const PRECISION_MULTIPLIER = 10000; // For rounding to 4 decimal places
+
 const BotPosition = getBotPositionModel();
 
 // Local position type (without mongoose _id)
@@ -116,7 +118,7 @@ const updateBotPosition = async (
     const newSize = Math.max(0, currentSize + sizeChange); // Can't go below 0
     
     // Round to avoid floating point issues
-    const roundedNewSize = Math.round(newSize * 1000000) / 1000000;
+    const roundedNewSize = Math.round(newSize * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
     
     // Update local map
     if (roundedNewSize < 0.01) {
@@ -168,7 +170,7 @@ const calculateBotTrade = (
     const botCurrentSize = getBotPosition(asset);
     
     // Round size change to avoid floating point issues
-    const roundedSizeChange = Math.round(sizeChange * 1000000) / 1000000;
+    const roundedSizeChange = Math.round(sizeChange * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
     
     // No meaningful change
     if (Math.abs(roundedSizeChange) < 0.01) {
