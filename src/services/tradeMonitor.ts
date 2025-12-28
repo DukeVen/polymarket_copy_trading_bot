@@ -77,6 +77,8 @@ const fetchActivitiesAndProcessTrades = async () => {
         // asset = assetId
         // trades = array of trade activities for that asset
         for (const [asset, trades] of tradesByAsset) {
+            console.log(`${"-".repeat(15)}`);
+
             const firstTrade = trades[0];
 
             // Calculate net size change from all trades
@@ -99,6 +101,8 @@ const fetchActivitiesAndProcessTrades = async () => {
             }
 
             console.log(`\nTRADE VERDICT: ${tradeVerdict}\n`);
+
+            console.log(`${"-".repeat(15)}\n`);
         }
 
         console.log(`${"=".repeat(15)} END OF PROCESSING ${"=".repeat(15)}\n`);
