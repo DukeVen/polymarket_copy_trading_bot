@@ -19,6 +19,8 @@ class APIRateLimiter {
         
         const count = this.calls.length;
         const percentage = (count / this.limit) * 100;
+
+        console.log("API COUNT: ", count);
         
         // Warning at 80%
         if (percentage >= 80 && percentage < 100) {
