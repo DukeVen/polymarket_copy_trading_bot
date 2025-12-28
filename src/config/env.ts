@@ -38,4 +38,5 @@ export const ENV = {
     DRY_RUN: process.env.DRY_RUN === 'true',
     SIZE_MULTIPLIER: parseFloat(process.env.SIZE_MULTIPLIER || '1.0'),
     MAX_ORDER_AMOUNT: parseFloat(process.env.MAX_ORDER_AMOUNT || '100'),
+    MAX_SPEND_24H: parseFloat(process.env.MAX_SPEND_24H || '1000'),
 };

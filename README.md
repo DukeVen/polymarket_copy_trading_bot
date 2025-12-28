@@ -61,6 +61,7 @@ USDC_CONTRACT_ADDRESS=0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
 
 SIZE_MULTIPLIER=1.0
 MAX_ORDER_AMOUNT=100
+MAX_SPEND_24H=1000
 DRY_RUN=true
 
 FETCH_INTERVAL=1
@@ -89,6 +90,7 @@ bun src/index.ts
 | `USDC_CONTRACT_ADDRESS` | ✅ | USDC token contract on Polygon | - |
 | `SIZE_MULTIPLIER` | ❌ | Trade size scaling factor (0.1 = 10%, 2.0 = 200%) | `1.0` |
 | `MAX_ORDER_AMOUNT` | ❌ | Maximum USDC per order | `100` |
+| `MAX_SPEND_24H` | ❌ | Maximum USDC spending in any 24-hour period | `1000` |
 | `DRY_RUN` | ❌ | Simulate trades without executing | `false` |
 | `FETCH_INTERVAL` | ❌ | Seconds between trade checks | `1` |
 | `TOO_OLD_TIMESTAMP` | ❌ | Hours before ignoring old trades | `24` |
@@ -227,6 +229,7 @@ src/
 ### Built-in Protections
 
 * **Maximum Order Size** – `MAX_ORDER_AMOUNT` caps single orders
+* **24-Hour Spend Limit** – `MAX_SPEND_24H` prevents excessive spending in any rolling 24-hour period
 * **Size Multiplier** – Scale trades up or down with `SIZE_MULTIPLIER`
 * **Price Validation** – Rejects orders with >5% price deviation
 * **Retry Limits** – Fails after `RETRY_LIMIT` attempts
@@ -237,6 +240,7 @@ src/
 ✅ **Start with dry run enabled** to verify behavior  
 ✅ **Use SIZE_MULTIPLIER < 1.0** initially (e.g., 0.5 for 50% size)  
 ✅ **Set conservative MAX_ORDER_AMOUNT** to limit exposure  
+✅ **Configure MAX_SPEND_24H** to prevent runaway spending (e.g., $1000)  
 ✅ **Monitor MongoDB** for failed trades  
 ✅ **Keep USDC balance** sufficient for target's trading volume  
 

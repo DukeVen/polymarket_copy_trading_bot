@@ -1,6 +1,6 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { ENV } from '../config/env';
-import { getBotPositionModel } from '../models/userHistory';
+import { getBotPositionModel, getBotSpendingModel } from '../models/userHistory';
 import getMyBalance from '../utils/getMyBalance';
 import fetchPositions from '../utils/fetchPositions';
 import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmitter';
@@ -8,11 +8,45 @@ import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmit
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 const MAX_ORDER_AMOUNT = ENV.MAX_ORDER_AMOUNT;
+const MAX_SPEND_24H = ENV.MAX_SPEND_24H;
 const DRY_RUN = ENV.DRY_RUN;
 
 const PRECISION_MULTIPLIER = 10000; // For rounding to 4 decimal places
 
 const BotPosition = getBotPositionModel();
+const BotSpending = getBotSpendingModel();
+
+// Get spending in the last 24 hours
+const getSpendingLast24Hours = async (): Promise<number> => {
+    const twentyFourHoursAgo = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+    
+    try {
+        const recentSpending = await BotSpending.find({
+            timestamp: { $gte: twentyFourHoursAgo }
+        });
+        
+        const totalSpent = recentSpending.reduce((sum, record) => sum + record.amount, 0);
+        return totalSpent;
+    } catch (error) {
+        console.error('[EXECUTOR] Error fetching spending history:', error);
+        return 0;
+    }
+};
+
+// Record a spending transaction
+const recordSpending = async (amount: number, asset: string, title: string, outcome: string): Promise<void> => {
+    try {
+        await BotSpending.create({
+            timestamp: Math.floor(Date.now() / 1000),
+            amount,
+            asset,
+            title,
+            outcome,
+        });
+    } catch (error) {
+        console.error('[EXECUTOR] Error recording spending:', error);
+    }
+};
 
 // Local position type (without mongoose _id)
 interface LocalBotPosition {
@@ -306,6 +340,29 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             return;
         }
 
+        // Check 24-hour spending limit
+        if (botTrade.action === 'BUY') {
+            const spentLast24h = await getSpendingLast24Hours();
+            const projectedSpend = spentLast24h + estimatedCost;
+            
+            if (projectedSpend > MAX_SPEND_24H) {
+                console.log(`[EXECUTOR] \n⚠️ TRADE SKIPPED - EXCEEDS 24-HOUR SPEND LIMIT`);
+                console.log(`[EXECUTOR]    Market: ${title} - ${outcome}`);
+                console.log(`[EXECUTOR]    Action: ${botTrade.action} ${botTrade.size} shares`);
+                console.log(`[EXECUTOR]    Trade Cost: $${estimatedCost.toFixed(2)}`);
+                console.log(`[EXECUTOR]    Already Spent (24h): $${spentLast24h.toFixed(2)}`);
+                console.log(`[EXECUTOR]    Projected Total: $${projectedSpend.toFixed(2)}`);
+                console.log(`[EXECUTOR]    24h Limit: $${MAX_SPEND_24H.toFixed(2)}`);
+                console.log(`[EXECUTOR]    Would Exceed By: $${(projectedSpend - MAX_SPEND_24H).toFixed(2)}\n`);
+                console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
+                return;
+            }
+            
+            // Log remaining budget
+            const remainingBudget = MAX_SPEND_24H - spentLast24h;
+            console.log(`[EXECUTOR] 💳 24h Spending: $${spentLast24h.toFixed(2)} / $${MAX_SPEND_24H.toFixed(2)} (${remainingBudget.toFixed(2)} remaining)`);
+        }
+
         if (!DRY_RUN && botTrade.action === 'BUY' && estimatedCost > my_balance) {
             console.log(`[EXECUTOR] \n❌ INSUFFICIENT BALANCE!`);
             console.log(`[EXECUTOR]    Need: ~$${estimatedCost.toFixed(2)}`);
@@ -362,6 +419,11 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
                 title,
                 outcome
             );
+
+            // Record spending for BUY orders (both dry run and live for tracking)
+            if (botTrade.action === 'BUY') {
+                await recordSpending(estimatedCost, asset, title, outcome);
+            }
 
             if (DRY_RUN) {
                 console.log(`[EXECUTOR] \n✅ SIMULATED SUCCESSFULLY`);

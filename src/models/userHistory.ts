@@ -116,4 +116,23 @@ const getInitialTargetPositionModel = (walletAddress: string) => {
     return mongoose.model(collectionName, initialTargetPositionSchema, collectionName);
 };
 
-export { getUserPositionModel, getUserActivityModel, getBotPositionModel, getInitialTargetPositionModel };
+// Bot spending tracking schema - tracks spending for 24-hour limit
+const botSpendingSchema = new Schema({
+    _id: {
+        type: Schema.Types.ObjectId,
+        required: true,
+        auto: true,
+    },
+    timestamp: { type: Number, required: true }, // Unix timestamp
+    amount: { type: Number, required: true }, // Amount spent in USDC
+    asset: { type: String, required: true },
+    title: { type: String, required: false },
+    outcome: { type: String, required: false },
+});
+
+const getBotSpendingModel = () => {
+    const collectionName = 'bot_spending_history';
+    return mongoose.model(collectionName, botSpendingSchema, collectionName);
+};
+
+export { getUserPositionModel, getUserActivityModel, getBotPositionModel, getInitialTargetPositionModel, getBotSpendingModel };

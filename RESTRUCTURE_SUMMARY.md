@@ -180,6 +180,9 @@ No new environment variables needed. Uses existing:
 - `PROXY_WALLET` - Bot's wallet
 - `DRY_RUN` - Test mode without executing trades
 - `RETRY_LIMIT` - Max retries for failed trades
+- `MAX_ORDER_AMOUNT` - Maximum USDC per single order
+- `MAX_SPEND_24H` - Maximum USDC spending in any 24-hour period
+- `SIZE_MULTIPLIER` - Trade size scaling factor
 
 ## Migration Notes
 
