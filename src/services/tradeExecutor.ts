@@ -187,14 +187,14 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
 
         console.log(`\n💡 Decision: ${botTrade.reason}`);
 
-        // Check balance before trading
+        // Check balance before trading (skip in dry run mode)
         const my_balance = await getMyBalance(PROXY_WALLET);
         console.log(`\n💰 Bot balance: $${my_balance.toFixed(2)} USDC`);
 
         // Estimate cost using current market price
         const estimatedCost = botTrade.size * position.curPrice;
 
-        if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
+        if (!ENV.DRY_RUN && botTrade.action === 'BUY' && estimatedCost > my_balance) {
             console.log(`⚠️ Insufficient balance! Need ~$${estimatedCost.toFixed(2)}, have $${my_balance.toFixed(2)}`);
             return;
         }
@@ -206,6 +206,9 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares`);
             console.log(`   Market price: ~$${position.curPrice}`);
             console.log(`   Estimated cost: $${estimatedCost.toFixed(2)}`);
+            if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
+                console.log(`   ⚠️ Note: Would need $${estimatedCost.toFixed(2)} but only have $${my_balance.toFixed(2)}`);
+            }
         } else {
             console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares`);
             console.log(`   Market price: ~$${position.curPrice}`);
