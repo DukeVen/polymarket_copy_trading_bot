@@ -164,7 +164,7 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
     }
 
     console.log(`[MONITOR] ✅ Processing Complete`);
-    console.log(`[MONITOR] ${"═".repeat(60)}\n\n`);
+    console.log(`[MONITOR] ${"═".repeat(60)}\n`);
 
 }
 

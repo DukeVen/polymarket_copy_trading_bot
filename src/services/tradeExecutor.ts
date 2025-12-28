@@ -241,8 +241,7 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
 
         if (!botTrade.shouldTrade) {
             console.log(`\n[EXECUTOR] ⏭️  Skipped: ${title} - ${outcome}`);
-            console.log(`[EXECUTOR]    Reason: ${botTrade.reason}`);
-            console.log('\n🔄 ' + '━'.repeat(68) + ' 🔄\n');
+            console.log(`[EXECUTOR]    Reason: ${botTrade.reason}\n`);
             return;
         }
 
@@ -273,7 +272,6 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             console.log(`[EXECUTOR]    Have: $${my_balance.toFixed(2)}`);
             console.log(`[EXECUTOR]    Missing: $${(estimatedCost - my_balance).toFixed(2)}\n`);
             console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
-            console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
             return;
         }
 
@@ -309,7 +307,6 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
                 console.log(`[EXECUTOR] \n❌ TRADE FAILED`);
                 console.log(`[EXECUTOR]    Error: ${result.error}`);
                 console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
-                console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
                 return;
             }
         }
@@ -336,14 +333,12 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         }
 
         console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
-        console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
 
     } catch (error) {
         console.error('[EXECUTOR] \n❌ ERROR PROCESSING POSITION CHANGE');
         console.error(`[EXECUTOR]    Market: ${title} - ${outcome}`);
         console.error(`[EXECUTOR]    Error: ${error}`);
         console.error('[EXECUTOR] ' + '='.repeat(70) + '\n');
-        console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
     }
 };
 
@@ -372,6 +367,9 @@ const tradeExecutor = async (clobClient: ClobClient) => {
             await processPositionChange(clobClient, change);
         }
         isProcessing = false;
+        
+        // Add separator after all trades in batch are processed
+        console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
     };
 
     // Listen for position change events from tradeMonitor
