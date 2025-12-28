@@ -34,7 +34,7 @@ const init = () => {
 const fetchActivitiesAndProcessTrades = async () => {
     try {
         // Start spinner
-        spinner.start('Checking for new activities...');
+        //spinner.start('Checking for new activities...');
         
         // Fetch recent activities from Polymarket API
         activitiesRateLimiter.track();
