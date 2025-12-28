@@ -91,7 +91,8 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     // Get initial target position (what they had when bot started)
     let initialTargetSize = await getInitialTargetPosition(asset);
     
-    // If no initial position exists for this asset, save it as current size (new position after bot started)
+    // If no initial position exists for this asset, it's a NEW position opened after bot started
+    // Set initial to 0 so bot will copy the full size
     if (initialTargetSize === 0) {
         const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
         if (!existingInitial) {
@@ -99,12 +100,12 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
             await new InitialTargetPosition({
                 conditionId: conditionId,
                 asset: asset,
-                size: currentTargetSize, // Set initial to current (don't copy existing positions)
+                size: 0, // New position after bot started - initial is 0
                 outcomeIndex: outcomeIndex,
                 startTimestamp: startTimestamp,
             }).save();
-            console.log(`   📌 New asset detected, setting initial position to ${currentTargetSize}`);
-            initialTargetSize = currentTargetSize;
+            console.log(`   📌 New asset detected, initial position = 0 (will copy full ${currentTargetSize} shares)`);
+            initialTargetSize = 0;
         }
     }
     
