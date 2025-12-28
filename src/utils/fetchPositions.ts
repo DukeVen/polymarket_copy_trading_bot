@@ -2,17 +2,36 @@ import { UserPositionInterface } from '../interfaces/User';
 import fetchData from './fetchData';
 
 /**
- * Fetch user positions from Polymarket Data API
+ * Fetch ALL user positions from Polymarket Data API using pagination
  * @param walletAddress - The wallet address to fetch positions for
- * @param limit - Maximum number of positions to fetch (default: 500)
- * @returns Array of user positions
+ * @returns Array of all user positions
  */
-const fetchPositions = async (walletAddress: string, limit: number = 500): Promise<UserPositionInterface[]> => {
+const fetchPositions = async (walletAddress: string): Promise<UserPositionInterface[]> => {
     try {
-        const positions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${walletAddress}&limit=${limit}`
-        );
-        return positions;
+        const allPositions: UserPositionInterface[] = [];
+        const limit = 500; // Max allowed by API
+        let offset = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+            const positions: UserPositionInterface[] = await fetchData(
+                `https://data-api.polymarket.com/positions?user=${walletAddress}&limit=${limit}&offset=${offset}`
+            );
+
+            if (positions.length === 0) {
+                hasMore = false;
+            } else {
+                allPositions.push(...positions);
+                offset += limit;
+
+                // If we got fewer than limit, we've reached the end
+                if (positions.length < limit) {
+                    hasMore = false;
+                }
+            }
+        }
+
+        return allPositions;
     } catch (error) {
         console.error('⚠️ Error fetching positions from API:', error);
         console.error('   Error details:', String(error));
