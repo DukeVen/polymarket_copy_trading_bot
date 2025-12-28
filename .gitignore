@@ -21,6 +21,8 @@ out/
 .env
 .env.* 
 
+.credentials.json
+
 # Temporary files
 *.tmp
 *.temp

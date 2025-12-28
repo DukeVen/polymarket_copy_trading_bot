@@ -130,6 +130,8 @@ const orders: PostOrdersArgs[] = [
 
 const resp = await clobClient.postOrders(orders);
 */
+// TODO make so spending is recorded only on successful trades
+// Execute a market order
 const executeOrder = async (
     clobClient: ClobClient,
     tokenID: string,

@@ -1,5 +1,5 @@
-import { ethers } from 'ethers';
-import { ClobClient } from '@polymarket/clob-client';
+import { Wallet } from 'ethers';
+import { ApiKeyCreds, ClobClient } from '@polymarket/clob-client';
 import { SignatureType } from '@polymarket/order-utils';
 import { ENV } from '../config/env';
 
@@ -9,40 +9,36 @@ const CLOB_HTTP_URL = ENV.CLOB_HTTP_URL;
 const createClobClient = async (): Promise<ClobClient> => {
     const chainId = 137;
     const host = CLOB_HTTP_URL as string;
-    const wallet = new ethers.Wallet(PRIVATE_KEY as string);
+
+    const wallet = new Wallet(PRIVATE_KEY as string);
     const PROXY_WALLET = ENV.PROXY_WALLET || wallet.address;
+
     console.log('Using proxy wallet:', PROXY_WALLET);
-    let clobClient = new ClobClient(
-        host,
-        chainId,
-        wallet,
-        undefined,
-        SignatureType.POLY_PROXY,
-        PROXY_WALLET as string
-    );
 
-    const originalConsoleError = console.error;
-    console.error = function () {};
-    let creds = await clobClient.createApiKey();
-    console.error = originalConsoleError;
-    if (creds.key) {
-        console.log('API Key created', creds);
+    let creds: ApiKeyCreds;
+    
+    // Check if API credentials are available in environment
+    if (ENV.CLOB_API_KEY && ENV.CLOB_API_SECRET && ENV.CLOB_API_PASSPHRASE) {
+        creds = {
+            key: ENV.CLOB_API_KEY,
+            secret: ENV.CLOB_API_SECRET,
+            passphrase: ENV.CLOB_API_PASSPHRASE,
+        };
+        console.log('Using stored API credentials');
     } else {
-        creds = await clobClient.deriveApiKey();
-        console.log('API Key derived', creds);
+        console.error('No API credentials found in environment variables.');
+        process.exit(1);
     }
-    //console.log('creds', creds);
 
-    clobClient = new ClobClient(
+    const client = new ClobClient(
         host,
         chainId,
         wallet,
         creds,
-        SignatureType.POLY_PROXY,
-        PROXY_WALLET as string
+        2, // Deployed Safe proxy wallet
     );
-    //console.log(clobClient);
-    return clobClient;
+
+    return client;
 };
 
 export default createClobClient;

@@ -10,7 +10,8 @@
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
         "format": "prettier --write .",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "gen-creds": "ts-node src/utils/generate_credentials.ts"
     },
     "keywords": [],
     "author": "dv",
