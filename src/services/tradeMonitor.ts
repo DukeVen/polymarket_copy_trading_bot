@@ -22,7 +22,7 @@ let isInitialized = false;
 let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // key: asset (token ID)
 
 const init = async () => {
-    target_activities = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
+    target_activities = (await UserActivity.find().sort({ timestamp: 1 }).exec()).map((trade) => trade as UserActivityInterface);
     
     // Check if we've already saved initial positions
     const existingInitialPositions = await InitialTargetPosition.find().exec();
@@ -74,8 +74,11 @@ const fetchTradeData = async () => {
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
 
+        // Sort activities by timestamp (oldest first) for consistent processing
+        const sortedActivities = userActivities.sort((a, b) => a.timestamp - b.timestamp);
+
         // Filter and process new trades
-        for (const activity of userActivities) {
+        for (const activity of sortedActivities) {
             // Skip if not a trade
             if (activity.type !== 'TRADE') continue;
 

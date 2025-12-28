@@ -70,7 +70,9 @@ const readTargetTrade = async () => {
     target_activities = (
         await UserActivity.find({
             $and: [{ type: 'TRADE' }, { bot: false }, { botExcutedTime: { $lt: RETRY_LIMIT } }],
-        }).exec()
+        })
+        .sort({ timestamp: 1 })  // Sort by timestamp ascending (oldest first)
+        .exec()
     ).map((trade) => trade as UserActivityInterface);
 };
 
@@ -328,9 +330,8 @@ const tradeExcutor = async (clobClient: ClobClient) => {
 
     while (true) {
         await readTargetTrade();
-        console.log("TEMP: Target activites length: " + target_activities.length);
         if (target_activities.length > 0) {
-            console.log('💥 New transactions found 💥');
+            console.log('💥 New transactions found 💥:', target_activities.length);
             spinner.stop();
             await doTrading(clobClient);
         } else {
