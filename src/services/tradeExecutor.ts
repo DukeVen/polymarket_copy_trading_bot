@@ -23,6 +23,11 @@ const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 let positionCache: { data: UserPositionInterface[], timestamp: number } | null = null;
 const POSITION_CACHE_TTL = 5000; // 5 seconds
 
+// Clear the position cache (used after processing trades to get fresh data)
+const clearPositionCache = () => {
+    positionCache = null;
+};
+
 // Fetch FRESH target position from API to avoid stale data
 const getFreshTargetPosition = async (asset: string): Promise<number> => {
     try {
@@ -173,7 +178,8 @@ const calculateBotTrade = async (trade: UserActivityInterface): Promise<{
     const botTargetSize = Math.max(0, targetChange); // Can't have negative positions
     
     // Calculate what trade bot needs to make
-    const botSizeChange = botTargetSize - botCurrentSize;
+    // Round to avoid floating point precision issues
+    const botSizeChange = Math.round((botTargetSize - botCurrentSize) * 1000000) / 1000000;
     
     console.log(`\n📊 Position Analysis for ${trade.title} - ${trade.outcome}:`);
     console.log(`   Target initial: ${initialTargetSize} shares`);
@@ -235,6 +241,10 @@ const doTrading = async (clobClient: ClobClient) => {
         console.error('PROXY_WALLET or TARGET_ADDRESS is not defined');
         return;
     }
+    
+    // Clear cache at the start of processing a new batch to ensure fresh data
+    // This prevents using stale data while avoiding excessive API calls
+    clearPositionCache();
     
     for (const trade of target_activities) {
         console.log('\n' + '='.repeat(60));
