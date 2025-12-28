@@ -77,6 +77,8 @@ const fetchPositionData = async () => {
         // Store previous positions before updating
         previousTargetPositions = new Map(currentTargetPositions);
 
+        currentTargetPositions.clear();
+
         // Update positions in database and current map
         for (const position of userPositions) {
             // Skip resolved positions (can't trade on resolved markets)
@@ -131,13 +133,19 @@ const fetchPositionData = async () => {
             if (!userPositions.find(p => p.asset === asset)) {
                 console.log(`❌ Position closed: ${previousPosition.title} - ${previousPosition.outcome}`);
                 
+                // Create a modified position object with size = 0 to represent closure
+                const closedPosition: UserPositionInterface = {
+                    ...previousPosition,
+                    size: 0
+                };
+                
                 // Emit closed position event
                 const changeEvent: PositionChangeEvent = {
                     asset,
                     previousSize: previousPosition.size,
                     currentSize: 0,
                     delta: -previousPosition.size,
-                    position: previousPosition,
+                    position: closedPosition,  // Send modified position with size = 0
                     changeType: 'closed'
                 };
                 positionChangeEmitter.emitPositionChange(changeEvent);
@@ -145,6 +153,8 @@ const fetchPositionData = async () => {
                 currentTargetPositions.delete(asset);
             }
         }
+
+
     } catch (error) {
         console.error('Error fetching position data:', error);
     }
