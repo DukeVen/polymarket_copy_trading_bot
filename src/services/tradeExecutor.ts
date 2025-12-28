@@ -19,21 +19,39 @@ const UserActivity = getUserActivityModel(TARGET_ADDRESS);
 const BotPosition = getBotPositionModel();
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
-// Fetch FRESH target position from API
-const getFreshTargetPosition = async (asset: string): Promise<number> => {
+// Fetch all target positions from API
+const fetchTargetPositions = async (): Promise<UserPositionInterface[]> => {
     try {
-        console.log(`   [Fetching API...]`);
         const positions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
+        return positions;
+    } catch (error) {
+        console.error('⚠️ Error fetching positions from API:', error);
+        console.error('   Error details:', String(error));
+        return [];
+    }
+};
+
+// Get target position for a specific asset
+const getFreshTargetPosition = async (asset: string, positions?: UserPositionInterface[]): Promise<number> => {
+    try {
+        // If positions data is provided, use it instead of fetching from API
+        if (positions) {
+            const position = positions.find(p => p.asset === asset);
+            const size = position ? position.size : 0;
+            return size;
+        }
         
-        const position = positions.find(p => p.asset === asset);
+        console.log(`   [Fetching API...]`);
+        const fetchedPositions = await fetchTargetPositions();
+        
+        const position = fetchedPositions.find(p => p.asset === asset);
         const size = position ? position.size : 0;
         console.log(`   [Fresh API] Asset ${asset.substring(0, 10)}... current: ${size} shares`);
         return size;
     } catch (error) {
-        console.error('⚠️ Error fetching fresh position from API:', error);
-        console.error('   Error details:', String(error));
+        console.error('⚠️ Error getting target position:', error);
         return 0;
     }
 };
@@ -116,7 +134,7 @@ const updateBotPosition = async (
 };
 
 // Calculate what trade the bot should make based on target's trade
-const calculateBotTrade = async (trade: UserActivityInterface): Promise<{
+const calculateBotTrade = async (trade: UserActivityInterface, positions?: UserPositionInterface[]): Promise<{
     shouldTrade: boolean;
     action: 'BUY' | 'SELL';
     size: number;
@@ -143,8 +161,8 @@ const calculateBotTrade = async (trade: UserActivityInterface): Promise<{
         }
     }
     
-    // Get FRESH current target position from API (avoid stale cached data)
-    const currentTargetSize = await getFreshTargetPosition(asset);
+    // Get FRESH current target position (use provided positions data if available)
+    const currentTargetSize = await getFreshTargetPosition(asset, positions);
     
     // Get bot's current position
     const botCurrentSize = await getBotPosition(asset);
@@ -219,6 +237,12 @@ const doTrading = async (clobClient: ClobClient) => {
         return;
     }
     
+    // Fetch target's current positions ONCE before processing the batch
+    // This avoids rate limiting since these are historical trades already reflected in the API
+    console.log('\n📡 Fetching target\'s current positions...');
+    const targetPositions = await fetchTargetPositions();
+    console.log(`✅ Fetched ${targetPositions.length} positions from API\n`);
+    
     for (const trade of target_activities) {
         console.log('\n' + '='.repeat(60));
         console.log(`🔍 Processing target's trade:`);
@@ -227,8 +251,8 @@ const doTrading = async (clobClient: ClobClient) => {
         console.log('='.repeat(60));
         
         try {
-            // Calculate what the bot should do
-            const botTrade = await calculateBotTrade(trade);
+            // Calculate what the bot should do (pass positions data to avoid API calls)
+            const botTrade = await calculateBotTrade(trade, targetPositions);
             
             console.log(`\n💡 Decision: ${botTrade.reason}`);
             
@@ -322,10 +346,6 @@ const doTrading = async (clobClient: ClobClient) => {
         }
         
         console.log(''); // Empty line for spacing
-        
-        // Add delay between trade iterations to prevent API rate limiting
-        // This ensures each trade gets fresh position data without overwhelming the API
-        await new Promise((resolve) => setTimeout(resolve, 100)); // 100ms delay
     }
 };
 
