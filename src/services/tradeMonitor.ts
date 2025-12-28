@@ -77,7 +77,8 @@ const fetchPositionData = async () => {
         // Store previous positions before updating
         previousTargetPositions = new Map(currentTargetPositions);
 
-        currentTargetPositions.clear();
+        // Clear to rebuild from fresh API data
+        const newCurrentPositions = new Map<string, UserPositionInterface>();
 
         // Update positions in database and current map
         for (const position of userPositions) {
@@ -140,12 +141,12 @@ const fetchPositionData = async () => {
             }
 
             // Update current positions map
-            currentTargetPositions.set(position.asset, position);
+            newCurrentPositions.set(position.asset, position);
         }
 
-        // Detect closed positions
+        // Detect closed positions (in previous but not in new API response)
         for (const [asset, previousPosition] of previousTargetPositions.entries()) {
-            if (!userPositions.find(p => p.asset === asset)) {
+            if (!newCurrentPositions.has(asset)) {
                 console.log(`❌ Position closed: ${previousPosition.title} - ${previousPosition.outcome}`);
                 
                 // Create a modified position object with size = 0 to represent closure
@@ -165,10 +166,12 @@ const fetchPositionData = async () => {
                 };
                 positionChangeEmitter.emitPositionChange(changeEvent);
                 
-                currentTargetPositions.delete(asset);
+                // Don't add to newCurrentPositions (it's closed)
             }
         }
 
+        // Update current positions to the new state
+        currentTargetPositions = newCurrentPositions;
 
     } catch (error) {
         console.error('Error fetching position data:', error);

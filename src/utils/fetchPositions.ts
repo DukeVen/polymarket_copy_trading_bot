@@ -15,6 +15,7 @@ const fetchPositions = async (walletAddress: string): Promise<UserPositionInterf
 
         while (hasMore) {
             // redeemable=false to exclude positions that are resolved
+            // _=${Date.now()} to bypass any HTTP caching
             const positions: UserPositionInterface[] = await fetchData(
                 `https://data-api.polymarket.com/positions?user=${walletAddress}&limit=${limit}&offset=${offset}&redeemable=false&_=${Date.now()}`
             );
