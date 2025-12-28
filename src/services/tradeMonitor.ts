@@ -74,7 +74,7 @@ const fetchActivitiesAndProcessTrades = async () => {
         console.log(`\n${"═".repeat(60)}`);
         console.log(`📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
         console.log(`⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
-        console.log(`${"═".repeat(60)}\n`);
+        console.log(`${"═".repeat(60)}`);
 
         // Process each asset's trades as a single net change
         // asset = assetId
@@ -94,9 +94,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             }
             for (const trade of trades) {
                 const emoji = trade.side === 'BUY' ? '🟢' : '🔴';
-                const time = moment.unix(trade.timestamp).format('HH:mm:ss');
-                const txShort = trade.transactionHash.substring(0, 10);
-                console.log(`  ${emoji} ${trade.side.padEnd(4)} │ ${time} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price} │ Tx: ${txShort}...`);
+                console.log(`  ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price}`);
             }
 
             // Determine verdict
@@ -119,7 +117,6 @@ const fetchActivitiesAndProcessTrades = async () => {
             console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
         }
 
-        console.log(`${"═".repeat(60)}`);
         console.log(`✅ Processing Complete`);
         console.log(`${"═".repeat(60)}\n`);
 
