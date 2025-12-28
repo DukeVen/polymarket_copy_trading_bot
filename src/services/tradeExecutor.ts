@@ -240,38 +240,39 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         );
 
         if (!botTrade.shouldTrade) {
-            console.log(`\n⏭️  Skipped: ${title} - ${outcome}`);
-            console.log(`   Reason: ${botTrade.reason}\n`);
+            console.log(`\n\n[EXECUTOR] ⏭️  Skipped: ${title} - ${outcome}`);
+            console.log(`[EXECUTOR]    Reason: ${botTrade.reason}`);
+            console.log(`\n`);
             return;
         }
 
         // Log the action we're about to take
-        console.log('\n' + '='.repeat(70));
-        console.log(`🎯 Target Trade Detected (${changeType.toUpperCase()}):`);
-        console.log(`   Market: ${title}`);
-        console.log(`   Outcome: ${outcome}`);
-        console.log(`   Target's Change: ${sizeChange > 0 ? '+' : ''}${sizeChange} shares`);
-        console.log('='.repeat(70));
+        console.log('\n\n[EXECUTOR] ' + '='.repeat(70));
+        console.log(`[EXECUTOR] 🎯 Target Trade Detected (${changeType.toUpperCase()}):`);
+        console.log(`[EXECUTOR]    Market: ${title}`);
+        console.log(`[EXECUTOR]    Outcome: ${outcome}`);
+        console.log(`[EXECUTOR]    Target's Change: ${sizeChange > 0 ? '+' : ''}${sizeChange} shares`);
+        console.log('[EXECUTOR] ' + '='.repeat(70));
 
-        console.log(`\n💡 Bot Decision: ${botTrade.reason}`);
+        console.log(`[EXECUTOR] \n💡 Bot Decision: ${botTrade.reason}`);
         
         // Get current bot position
         const currentBotPosition = getBotPosition(asset);
-        console.log(`📊 Bot's Current Position: ${currentBotPosition} shares`);
+        console.log(`[EXECUTOR] 📊 Bot's Current Position: ${currentBotPosition} shares`);
 
         // Check balance before trading
         const my_balance = await getMyBalance(PROXY_WALLET);
-        console.log(`💰 Bot Balance: $${my_balance.toFixed(2)} USDC`);
+        console.log(`[EXECUTOR] 💰 Bot Balance: $${my_balance.toFixed(2)} USDC`);
 
         // Estimate cost using market price
         const estimatedCost = botTrade.size * (curPrice || avgPrice);
 
         if (!ENV.DRY_RUN && botTrade.action === 'BUY' && estimatedCost > my_balance) {
-            console.log(`\n❌ INSUFFICIENT BALANCE!`);
-            console.log(`   Need: ~$${estimatedCost.toFixed(2)}`);
-            console.log(`   Have: $${my_balance.toFixed(2)}`);
-            console.log(`   Missing: $${(estimatedCost - my_balance).toFixed(2)}\n`);
-            console.log('='.repeat(70) + '\n');
+            console.log(`[EXECUTOR] \n❌ INSUFFICIENT BALANCE!`);
+            console.log(`[EXECUTOR]    Need: ~$${estimatedCost.toFixed(2)}`);
+            console.log(`[EXECUTOR]    Have: $${my_balance.toFixed(2)}`);
+            console.log(`[EXECUTOR]    Missing: $${(estimatedCost - my_balance).toFixed(2)}\n`);
+            console.log('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
             return;
         }
 
@@ -279,20 +280,20 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         let tradeSuccess = true;
 
         if (ENV.DRY_RUN) {
-            console.log(`\n🔷 DRY RUN MODE`);
-            console.log(`   Action: ${botTrade.action}`);
-            console.log(`   Size: ${botTrade.size} shares`);
-            console.log(`   Est. Price: ~$${(curPrice || avgPrice)}`);
-            console.log(`   Est. Cost: $${estimatedCost.toFixed(2)}`);
+            console.log(`[EXECUTOR] \n🔷 DRY RUN MODE`);
+            console.log(`[EXECUTOR]    Action: ${botTrade.action}`);
+            console.log(`[EXECUTOR]    Size: ${botTrade.size} shares`);
+            console.log(`[EXECUTOR]    Est. Price: ~$${(curPrice || avgPrice)}`);
+            console.log(`[EXECUTOR]    Est. Cost: $${estimatedCost.toFixed(2)}`);
             
             if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
-                console.log(`   ⚠️ Note: Would need $${estimatedCost.toFixed(2)} but only have $${my_balance.toFixed(2)}`);
+                console.log(`[EXECUTOR]    ⚠️ Note: Would need $${estimatedCost.toFixed(2)} but only have $${my_balance.toFixed(2)}`);
             }
         } else {
-            console.log(`\n🚀 Executing Trade:`);
-            console.log(`   Action: ${botTrade.action}`);
-            console.log(`   Size: ${botTrade.size} shares`);
-            console.log(`   Market Price: ~$${(curPrice || avgPrice)}`);
+            console.log(`[EXECUTOR] \n🚀 Executing Trade:`);
+            console.log(`[EXECUTOR]    Action: ${botTrade.action}`);
+            console.log(`[EXECUTOR]    Size: ${botTrade.size} shares`);
+            console.log(`[EXECUTOR]    Market Price: ~$${(curPrice || avgPrice)}`);
 
             const result = await executeOrder(
                 clobClient,
@@ -304,9 +305,9 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             tradeSuccess = result.success;
             
             if (!result.success) {
-                console.log(`\n❌ TRADE FAILED`);
-                console.log(`   Error: ${result.error}`);
-                console.log('='.repeat(70) + '\n');
+                console.log(`[EXECUTOR] \n❌ TRADE FAILED`);
+                console.log(`[EXECUTOR]    Error: ${result.error}`);
+                console.log('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
                 return;
             }
         }
@@ -324,21 +325,21 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             );
 
             if (ENV.DRY_RUN) {
-                console.log(`\n✅ SIMULATED SUCCESSFULLY`);
+                console.log(`[EXECUTOR] \n✅ SIMULATED SUCCESSFULLY`);
             } else {
-                console.log(`\n✅ TRADE EXECUTED SUCCESSFULLY`);
+                console.log(`[EXECUTOR] \n✅ TRADE EXECUTED SUCCESSFULLY`);
             }
-            console.log(`   Bot's New Position: ${newSize} shares`);
-            console.log(`   Position Change: ${actualSizeChange > 0 ? '+' : ''}${actualSizeChange}`);
+            console.log(`[EXECUTOR]    Bot's New Position: ${newSize} shares`);
+            console.log(`[EXECUTOR]    Position Change: ${actualSizeChange > 0 ? '+' : ''}${actualSizeChange}`);
         }
 
-        console.log('='.repeat(70) + '\n');
+        console.log('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
 
     } catch (error) {
-        console.error('\n❌ ERROR PROCESSING POSITION CHANGE');
-        console.error(`   Market: ${title} - ${outcome}`);
-        console.error(`   Error: ${error}`);
-        console.error('='.repeat(70) + '\n');
+        console.error('[EXECUTOR] \n❌ ERROR PROCESSING POSITION CHANGE');
+        console.error(`[EXECUTOR]    Market: ${title} - ${outcome}`);
+        console.error(`[EXECUTOR]    Error: ${error}`);
+        console.error('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
     }
 };
 

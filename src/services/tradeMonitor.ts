@@ -95,9 +95,9 @@ const tradeMonitor = async () => {
 };
 
 const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<string, UserActivityInterface[]>) => {
-    console.log(`\n${"═".repeat(60)}`);
-    console.log(`📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
-    console.log(`⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+    console.log(`\n\n[MONITOR] ${"═".repeat(60)}`);
+    console.log(`[MONITOR] 📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
+    console.log(`[MONITOR] ⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
 
     // Process each asset's trades as a single net change
     // asset = assetId
@@ -106,18 +106,18 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
         const firstTrade = trades[0];
         const netSizeChange = calcNetSizeChange(trades);
 
-        console.log(`${"─".repeat(58)}┐`);
-        console.log(`│ Market: ${firstTrade.title}`);
-        console.log(`│ Outcome: ${firstTrade.outcome}`);
-        console.log(`└${"─".repeat(58)}┘`);
+        console.log(`[MONITOR] ${"─".repeat(58)}┐`);
+        console.log(`[MONITOR] │ Market: ${firstTrade.title}`);
+        console.log(`[MONITOR] │ Outcome: ${firstTrade.outcome}`);
+        console.log(`[MONITOR] └${"─".repeat(58)}┘`);
 
         // Log individual trades
         if (trades.length > 1) {
-            console.log(`\n  Individual Trades (${trades.length} total):`);
+            console.log(`[MONITOR] \n  Individual Trades (${trades.length} total):`);
         }
         for (const trade of trades) {
             const emoji = trade.side === 'BUY' ? '🟢' : '🔴';
-            console.log(`  ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price}`);
+            console.log(`[MONITOR]   ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price}`);
         }
 
         // Determine verdict
@@ -139,10 +139,10 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
             changeType = 'none';
         }
 
-        console.log(`\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-        console.log(`  Net Position Change: ${netSizeChange > 0 ? '+' : ''}${netSizeChange} shares`);
-        console.log(`  ${verdictEmoji} VERDICT: ${tradeVerdict}`);
-        console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+        console.log(`[MONITOR] \n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`[MONITOR]   Net Position Change: ${netSizeChange > 0 ? '+' : ''}${netSizeChange} shares`);
+        console.log(`[MONITOR]   ${verdictEmoji} VERDICT: ${tradeVerdict}`);
+        console.log(`[MONITOR]   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
         // Emit position change event if there's a meaningful change
         if (changeType !== 'none') {
@@ -158,13 +158,13 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
                 sizeChange: netSizeChange,
             };
 
-            console.log(`  🔔 Emitting position change event to executor...\n`);
+            console.log(`[MONITOR]   🔔 Emitting position change event to executor...\n`);
             positionChangeEmitter.emitPositionChange(positionChangeEvent);
         }
     }
 
-    console.log(`✅ Processing Complete`);
-    console.log(`${"═".repeat(60)}\n`);
+    console.log(`[MONITOR] ✅ Processing Complete`);
+    console.log(`[MONITOR] ${"═".repeat(60)}\n\n`);
 
 }
 
