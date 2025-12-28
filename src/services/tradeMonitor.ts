@@ -17,7 +17,6 @@ const PRECISION_MULTIPLIER = 10000; // For rounding to 4 decimal places
 
 if (!TARGET_ADDRESS) {
     throw new Error('TARGET_ADDRESS is not defined');
-    console.log('TARGET_ADDRESS is not defined');
 }
 
 // Initialize rate limiters
@@ -31,42 +30,7 @@ let isInitialized = false;
 let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // Track current positions
 let lastProcessedActivityTimestamp = 0; // Track last activity we've processed
 
-const init = async () => {
-    // Check if we've already saved initial positions
-    const existingInitialPositions = await InitialTargetPosition.find().exec();
-
-    if (existingInitialPositions.length === 0) {
-        console.log('📸 Taking snapshot of target\'s initial positions...');
-
-        // Fetch and save target's current positions as initial state
-        positionsRateLimiter.track();
-        const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
-        console.log(`✅ Fetched ${userPositions.length} positions from API\n`);
-
-
-        const startTimestamp = Math.floor(Date.now() / 1000);
-
-        for (const position of userPositions) {
-            const initialPosition = createNewTargetPosition(position, startTimestamp);
-            await initialPosition.save();
-            console.log(`  ✓ Saved initial position: ${position.title} - ${position.outcome}: ${position.size} shares`);
-
-            // Store in current positions map
-            currentTargetPositions.set(position.asset, position);
-        }
-
-        console.log(`✅ Snapshot complete. Bot will track trades from Activities API.\n`);
-    } else {
-        console.log('✅ Initial positions already saved. Resuming from previous state.\n');
-
-        // Load current positions from Positions API
-        positionsRateLimiter.track();
-        const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
-        for (const position of userPositions) {
-            currentTargetPositions.set(position.asset, position);
-        }
-    }
-
+const init = () => {
     // Set last processed timestamp to now (only process new activities going forward)
     lastProcessedActivityTimestamp = Math.floor(Date.now() / 1000);
 
@@ -107,101 +71,38 @@ const fetchActivitiesAndProcessTrades = async () => {
             lastProcessedActivityTimestamp = Math.max(lastProcessedActivityTimestamp, trade.timestamp);
         }
 
+        console.log(`${"=".repeat(50)}\nProcessing ${newTrades.length} new trade activities at ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}\n${"=".repeat(50)}`);
+
         // Process each asset's trades as a single net change
         // asset = assetId
         // trades = array of trade activities for that asset
         for (const [asset, trades] of tradesByAsset) {
             const firstTrade = trades[0];
-            const lastTrade = trades[trades.length - 1];
 
             // Calculate net size change from all trades
             let netSizeChange = calcNetSizeChange(trades);
 
-            // Handle initial position tracking - check if we had this position in our tracking
-            // If not, this means that it is a new position
-            // ==> need to add this position to our current tracking map
-            const wasTracked = currentTargetPositions.has(asset);
-
-
-            // Get current tracked position - this is our source of truth
-            // We CANNOT fetch from Positions API here because it may have newer data
-            // than what Activities API has returned, causing incorrect calculations
-            const currentPosition = currentTargetPositions.get(asset);
-            let previousSize = currentPosition?.size || 0;
-            previousSize = Math.round(previousSize * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
-
-
-            // Calculate new size and round to avoid floating point issues
-            let newSize = Math.max(0, previousSize + netSizeChange);
-            newSize = Math.round(newSize * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
-
-            // Treat very small positions as fully closed
-            if (newSize < POSITION_CLOSE_THRESHOLD) {
-                newSize = 0;
+            // Log trades
+            for (const trade of trades) {
+                console.log(`[Trade] ${moment.unix(trade.timestamp).format('YYYY-MM-DD HH:mm:ss')} | ${trade.side} | ${trade.size} shares of ${trade.title} - ${trade.outcome} at $${trade.price} (Tx: ${trade.transactionHash})`);
             }
 
-            const delta = Math.round((newSize - previousSize) * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
+            console.log(`Net size change for ${firstTrade.title} - ${firstTrade.outcome}: ${netSizeChange} shares`);
 
-            // Determine change type and log
-            let changeType = determineChangeType(trades, firstTrade, previousSize, newSize, delta, wasTracked);
-
-
-            /*
-
-            // TODO
-            if (changeType === 'closed') {
-                // Reset initial position to 0 when fully closed
-                // This ensures if position reopens later, we track it from the reopening point
-                await InitialTargetPosition.findOneAndUpdate(
-                    { asset },
-                    { size: 0 },
-                    { upsert: true }
-                );
-            }
-
-            if (changeType === 'none') {
-                // No meaningful net change, skip emitting event
-                continue;
-            }
-
-
-            let positionForEvent: UserPositionInterface;
-
-            // Already existing position - just copy and adjust size
-            if (wasTracked && currentPosition) {
-                positionForEvent = {
-                    ...currentPosition,
-                    size: newSize,
-                };
+            let tradeVerdict = 'UNKNOWN';
+            if (netSizeChange > POSITION_CLOSE_THRESHOLD) {
+                tradeVerdict = 'BUY';
+            } else if (netSizeChange < -POSITION_CLOSE_THRESHOLD) {
+                tradeVerdict = 'SELL';
             } else {
-                // New position - TODO
-            
+                tradeVerdict = 'NO CHANGE (buy and sell)';
             }
 
-
-            // Update our local tracking
-            // Keep position in map even at small sizes to maintain tracking continuity
-            // Only remove when actually closed (rounded to 0)
-            if (newSize > 0) {
-                currentTargetPositions.set(asset, positionForEvent);
-            } else {
-                currentTargetPositions.delete(asset);
-            }
-
-
-            // Emit single event for the net change in this asset
-            const changeEvent: PositionChangeEvent = {
-                asset: asset,
-                previousSize,
-                currentSize: newSize,
-                delta,
-                position: positionForEvent,
-                changeType
-            };
-            positionChangeEmitter.emitPositionChange(changeEvent);
-
-            */
+            console.log(`TRADE VERDICT: ${tradeVerdict}`);
         }
+
+        console.log(`${"=".repeat(20)}END OF PROCESSING${"=".repeat(20)}\n`);
+
 
     } catch (error) {
         console.error('Error fetching activities:', error);
@@ -212,7 +113,7 @@ const tradeMonitor = async () => {
     // Check if already initialized (by external call to initializeMonitor)
     if (!isInitialized) {
         console.log('Trade Monitor is initializing...');
-        await init();
+        init();
     }
 
     console.log('Trade Monitor is running every', FETCH_INTERVAL, 'seconds');
@@ -228,31 +129,25 @@ const tradeMonitor = async () => {
 
 const calcNetSizeChange = (trades: UserActivityInterface[]): number => {
     let netSizeChange = 0;
-    let totalBuySize = 0;
-    let totalSellSize = 0;
-    let weightedPriceSum = 0;
 
     for (const trade of trades) {
         if (trade.side === 'BUY') {
             netSizeChange += trade.size;
-            totalBuySize += trade.size;
         } else if (trade.side === 'SELL') {
             netSizeChange -= trade.size;
-            totalSellSize += trade.size;
         }
-        weightedPriceSum += trade.price * trade.size;
     }
     netSizeChange = Math.round(netSizeChange * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
 
     return netSizeChange;
 }
 
-const determineChangeType = (trades: UserActivityInterface[], firstTrade: UserActivityInterface, previousSize: number, newSize: number, delta: number, wasTracked: boolean): 'new' | 'increase' | 'decrease' | 'closed' | 'none' => {
+const determineChangeType = (trades: UserActivityInterface[], firstTrade: UserActivityInterface, previousSize: number, newSize: number, delta: number): 'new' | 'increase' | 'decrease' | 'closed' | 'none' => {
     let changeType: 'new' | 'increase' | 'decrease' | 'closed' | 'none' = 'none';
     const tradeInfo = trades.length > 1 ? ` (${trades.length} trades combined)` : '';
 
     // Check if this was a position we weren't tracking AND previous size was very small/zero
-    if (!wasTracked && previousSize < POSITION_CLOSE_THRESHOLD && newSize > 0) {
+    if (previousSize < POSITION_CLOSE_THRESHOLD && newSize > 0) {
         changeType = 'new';
         console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
     } else if (newSize < POSITION_CLOSE_THRESHOLD) {

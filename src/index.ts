@@ -30,7 +30,7 @@ export const main = async () => {
     
     // Initialize monitor first (load trades and take snapshot)
     console.log('Initializing trade monitor...');
-    await initializeMonitor();
+    initializeMonitor();
     console.log('✅ Monitor initialized, starting executor...\n');
     
     // Run both monitor and executor in parallel (both have infinite loops)
