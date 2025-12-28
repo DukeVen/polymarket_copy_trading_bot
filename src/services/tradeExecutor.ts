@@ -109,6 +109,8 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
 
     console.log("initial target size: ", initialTargetSize);
     console.log("current target size: ", currentTargetSize);
+    console.log("bot target size: ", botTargetSize);
+    console.log("bot current size: ", botCurrentSize);
     
     // Only log detailed analysis if there's a trade to make
     if (Math.abs(botSizeChange) >= 0.0001) {
