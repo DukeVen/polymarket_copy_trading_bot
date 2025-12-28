@@ -4,25 +4,25 @@ import { UserActivityInterface, UserPositionInterface } from '../interfaces/User
 import { getUserActivityModel, getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
 
-const USER_ADDRESS = ENV.USER_ADDRESS;
+const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const TOO_OLD_TIMESTAMP = ENV.TOO_OLD_TIMESTAMP;
 const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
 
-if (!USER_ADDRESS) {
-    throw new Error('USER_ADDRESS is not defined');
-    console.log('USER_ADDRESS is not defined');
+if (!TARGET_ADDRESS) {
+    throw new Error('TARGET_ADDRESS is not defined');
+    console.log('TARGET_ADDRESS is not defined');
 }
 
-const UserActivity = getUserActivityModel(USER_ADDRESS);
-const UserPosition = getUserPositionModel(USER_ADDRESS);
-const InitialTargetPosition = getInitialTargetPositionModel(USER_ADDRESS);
+const UserActivity = getUserActivityModel(TARGET_ADDRESS);
+const UserPosition = getUserPositionModel(TARGET_ADDRESS);
+const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
-let temp_trades: UserActivityInterface[] = [];
+let target_activities: UserActivityInterface[] = [];
 let isInitialized = false;
 let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // key: asset (token ID)
 
 const init = async () => {
-    temp_trades = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
+    target_activities = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
     
     // Check if we've already saved initial positions
     const existingInitialPositions = await InitialTargetPosition.find().exec();
@@ -32,7 +32,7 @@ const init = async () => {
         
         // Fetch and save target's current positions as initial state
         const userPositions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
+            `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
         
         const startTimestamp = Math.floor(Date.now() / 1000);
@@ -54,19 +54,24 @@ const init = async () => {
         console.log('✅ Initial positions already saved. Resuming from previous state.\n');
     }
     
+    // Fetch initial trade data before executor starts
+    console.log('Fetching latest trades from API...');
+    await fetchTradeData();
+    console.log('✅ Initial fetch complete.\n');
+    
     isInitialized = true;
 };
 
 const fetchTradeData = async () => {
     try {
-        // Fetch user activities from Polymarket API
+        // Fetch target activities from Polymarket API
         const userActivities: UserActivityInterface[] = await fetchData(
-            `https://data-api.polymarket.com/activity?user=${USER_ADDRESS}`
+            `https://data-api.polymarket.com/activity?user=${TARGET_ADDRESS}`
         );
 
-        // Fetch user positions
+        // Fetch target positions
         const userPositions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${USER_ADDRESS}`
+            `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
 
         // Filter and process new trades
@@ -74,12 +79,12 @@ const fetchTradeData = async () => {
             // Skip if not a trade
             if (activity.type !== 'TRADE') continue;
 
-            // Skip if trade is too old
+            // Skip if trade is too old // TODO ADJUST?
             const hoursDiff = moment().diff(moment.unix(activity.timestamp), 'hours');
             if (hoursDiff > TOO_OLD_TIMESTAMP) continue;
 
             // Check if trade already exists in database
-            const existingTrade = temp_trades.find(
+            const existingTrade = target_activities.find(
                 (trade) => trade.transactionHash === activity.transactionHash
             );
 
@@ -91,7 +96,7 @@ const fetchTradeData = async () => {
                     botExcutedTime: 0,
                 });
                 await newTrade.save();
-                temp_trades.push(newTrade as UserActivityInterface);
+                target_activities.push(newTrade as UserActivityInterface);
                 console.log('🆕 New trade detected:', {
                     title: activity.title,
                     side: activity.side,
@@ -112,6 +117,8 @@ const fetchTradeData = async () => {
             
             // Update current positions map (keyed by asset/token ID)
             currentTargetPositions.set(position.asset, position);
+
+            console.log("TEMP: Updated position:");
         }
     } catch (error) {
         console.error('Error fetching trade data:', error);
@@ -119,13 +126,23 @@ const fetchTradeData = async () => {
 };
 
 const tradeMonitor = async () => {
+    // Check if already initialized (by external call to initializeMonitor)
+    if (!isInitialized) {
+        console.log('Trade Monitor is initializing...');
+        await init();
+    }
+    
     console.log('Trade Monitor is running every', FETCH_INTERVAL, 'seconds');
-    await init();    //Load my oders before sever downs
+
+    // Start monitoring loop
     while (true) {
-        await fetchTradeData();     //Fetch all user activities
-        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));     //Fetch user activities every second
+        await fetchTradeData();     // Fetch all target activities
+        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));     //Fetch target activities every second
     }
 };
+
+// Export init function for manual initialization
+export const initializeMonitor = init;
 
 // Export functions to get initial and current target positions
 export const getInitialTargetPosition = async (asset: string) => {

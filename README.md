@@ -50,7 +50,7 @@ bun install
 Create `.env` file in the project root:
 
 ```env
-USER_ADDRESS=0xTargetWalletToMonitor
+TARGET_ADDRESS=0xTargetWalletToMonitor
 PRIVATE_KEY=your_private_key_here
 
 CLOB_HTTP_URL=https://clob.polymarket.com
@@ -80,7 +80,7 @@ bun src/index.ts
 
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
-| `USER_ADDRESS` | ✅ | Target wallet address to monitor | - |
+| `TARGET_ADDRESS` | ✅ | Target wallet address to monitor | - |
 | `PRIVATE_KEY` | ✅ | Your wallet's private key | - |
 | `CLOB_HTTP_URL` | ✅ | Polymarket CLOB API endpoint | - |
 | `CLOB_WS_URL` | ✅ | Polymarket WebSocket URL | - |
@@ -246,7 +246,7 @@ src/
 
 ### Bot not detecting trades
 
-- Verify `USER_ADDRESS` matches target wallet
+- Verify `TARGET_ADDRESS` matches target wallet
 - Check MongoDB connection (`MONGO_URI`)
 - Ensure target wallet is actively trading
 - Check `FETCH_INTERVAL` isn't too high

@@ -4,11 +4,11 @@ import { getUserActivityModel } from '../models/userHistory';
 import { ENV } from '../config/env';
 
 const RETRY_LIMIT = ENV.RETRY_LIMIT;
-const USER_ADDRESS = ENV.USER_ADDRESS;
+const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const DRY_RUN = ENV.DRY_RUN;
 const SIZE_MULTIPLIER = ENV.SIZE_MULTIPLIER;
 const MAX_ORDER_AMOUNT = ENV.MAX_ORDER_AMOUNT;
-const UserActivity = getUserActivityModel(USER_ADDRESS);
+const UserActivity = getUserActivityModel(TARGET_ADDRESS);
 
 const postOrder = async (
     clobClient: ClobClient,

@@ -4,7 +4,7 @@
 
 1. Set `DRY_RUN=true` in your `.env` file for safe testing
 2. Make sure MongoDB is running
-3. Configure `USER_ADDRESS` (target wallet) and `PROXY_WALLET` (your bot wallet)
+3. Configure `TARGET_ADDRESS` (target wallet) and `PROXY_WALLET` (your bot wallet)
 
 ## Test Scenarios
 

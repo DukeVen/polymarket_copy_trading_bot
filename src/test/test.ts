@@ -2,7 +2,7 @@ import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { ENV } from '../config/env';
 import getMyBalance from '../utils/getMyBalance';
 
-const USER_ADDRESS = ENV.USER_ADDRESS;
+const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 
 const test = async (clobClient: ClobClient) => {

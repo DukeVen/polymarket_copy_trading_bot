@@ -176,7 +176,7 @@ The bot now provides detailed position analysis:
 ## Configuration
 
 No new environment variables needed. Uses existing:
-- `USER_ADDRESS` - Target wallet to copy
+- `TARGET_ADDRESS` - Target wallet to copy
 - `PROXY_WALLET` - Bot's wallet
 - `DRY_RUN` - Test mode without executing trades
 - `RETRY_LIMIT` - Max retries for failed trades
