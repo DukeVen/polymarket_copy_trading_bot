@@ -74,6 +74,10 @@ const fetchPositionData = async () => {
         positionsRateLimiter.track();
         const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
 
+        console.log(`\n[DEBUG] Fetched ${userPositions.length} positions from API`);
+        console.log(`[DEBUG] previousTargetPositions has ${previousTargetPositions.size} positions`);
+        console.log(`[DEBUG] currentTargetPositions has ${currentTargetPositions.size} positions`);
+
         // Store previous positions before updating
         previousTargetPositions = new Map(currentTargetPositions);
 
@@ -147,6 +151,7 @@ const fetchPositionData = async () => {
         // Detect closed positions (in previous but not in new API response)
         for (const [asset, previousPosition] of previousTargetPositions.entries()) {
             if (!newCurrentPositions.has(asset)) {
+                console.log(`[DEBUG] Detected close: ${previousPosition.title} was in previous but not in new`);
                 console.log(`❌ Position closed: ${previousPosition.title} - ${previousPosition.outcome}`);
                 
                 // Create a modified position object with size = 0 to represent closure
@@ -172,6 +177,8 @@ const fetchPositionData = async () => {
 
         // Update current positions to the new state
         currentTargetPositions = newCurrentPositions;
+        
+        console.log(`[DEBUG] After update, currentTargetPositions has ${currentTargetPositions.size} positions\n`);
 
     } catch (error) {
         console.error('Error fetching position data:', error);
