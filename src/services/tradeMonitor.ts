@@ -2,7 +2,7 @@ import moment from 'moment';
 import { ENV } from '../config/env';
 import { UserPositionInterface } from '../interfaces/User';
 import { getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
-import fetchData from '../utils/fetchData';
+import fetchPositions from '../utils/fetchPositions';
 import APIRateLimiter from '../utils/apiRateLimiter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
@@ -32,9 +32,7 @@ const init = async () => {
         
         // Fetch and save target's current positions as initial state
         positionsRateLimiter.track();
-        const userPositions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
-        );
+        const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
         
         const startTimestamp = Math.floor(Date.now() / 1000);
         
@@ -71,9 +69,7 @@ const fetchPositionData = async () => {
     try {
         // Fetch target positions from Polymarket API
         positionsRateLimiter.track();
-        const userPositions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
-        );
+        const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
 
         // Store previous positions before updating
         previousTargetPositions = new Map(currentTargetPositions);

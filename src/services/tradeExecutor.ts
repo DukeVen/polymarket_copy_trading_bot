@@ -2,7 +2,7 @@ import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { UserPositionInterface, BotPositionInterface } from '../interfaces/User';
 import { ENV } from '../config/env';
 import { getUserPositionModel, getBotPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
-import fetchData from '../utils/fetchData';
+import fetchPositions from '../utils/fetchPositions';
 import spinner from '../utils/spinner';
 import getMyBalance from '../utils/getMyBalance';
 import { getInitialTargetPosition } from './tradeMonitor';
@@ -19,21 +19,6 @@ const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
 // Initialize rate limiter
 const positionsRateLimiter = new APIRateLimiter('Positions', 150);
-
-// Fetch all target positions from API
-const fetchTargetPositions = async (): Promise<UserPositionInterface[]> => {
-    try {
-        positionsRateLimiter.track();
-        const positions: UserPositionInterface[] = await fetchData(
-            `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
-        );
-        return positions;
-    } catch (error) {
-        console.error('⚠️ Error fetching positions from API:', error);
-        console.error('   Error details:', String(error));
-        return [];
-    }
-};
 
 // Execute a simple market order
 const executeOrder = async (
@@ -207,8 +192,8 @@ const processPositions = async (clobClient: ClobClient) => {
     
     // Fetch target's current positions
     console.log('\n📡 Fetching target\'s current positions...');
-    const targetPositions = await fetchTargetPositions();
-    // TODO: only fetches max 100 positions?
+    positionsRateLimiter.track();
+    const targetPositions = await fetchPositions(TARGET_ADDRESS);
     console.log(`✅ Fetched ${targetPositions.length} positions from API\n`);
     
     if (targetPositions.length === 0) {
