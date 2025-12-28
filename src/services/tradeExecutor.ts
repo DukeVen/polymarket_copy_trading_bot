@@ -328,6 +328,7 @@ const tradeExcutor = async (clobClient: ClobClient) => {
 
     while (true) {
         await readTargetTrade();
+        console.log("TEMP: Target activites length: " + target_activities.length);
         if (target_activities.length > 0) {
             console.log('💥 New transactions found 💥');
             spinner.stop();
