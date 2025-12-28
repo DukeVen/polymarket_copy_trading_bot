@@ -2,23 +2,17 @@ import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { UserPositionInterface, BotPositionInterface } from '../interfaces/User';
 import { ENV } from '../config/env';
 import { getUserPositionModel, getBotPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
-import fetchPositions from '../utils/fetchPositions';
-import spinner from '../utils/spinner';
 import getMyBalance from '../utils/getMyBalance';
 import { getInitialTargetPosition } from './tradeMonitor';
-import APIRateLimiter from '../utils/apiRateLimiter';
+import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmitter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
-const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
 const DRY_RUN = ENV.DRY_RUN;
 
 const UserPosition = getUserPositionModel(TARGET_ADDRESS);
 const BotPosition = getBotPositionModel();
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
-
-// Initialize rate limiter
-const positionsRateLimiter = new APIRateLimiter('Positions', 150);
 
 // Execute a simple market order
 const executeOrder = async (
@@ -184,101 +178,92 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     }
 };
 
-const processPositions = async (clobClient: ClobClient) => {
+// Process a single position change event
+const processPositionChange = async (clobClient: ClobClient, change: PositionChangeEvent) => {
     if (!PROXY_WALLET || !TARGET_ADDRESS) {
         console.error('PROXY_WALLET or TARGET_ADDRESS is not defined');
         return;
     }
-    
-    // Fetch target's current positions
-    console.log('\n📡 Fetching target\'s current positions...');
-    positionsRateLimiter.track();
-    const targetPositions = await fetchPositions(TARGET_ADDRESS);
-    console.log(`✅ Fetched ${targetPositions.length} positions from API\n`);
-    
-    if (targetPositions.length === 0) {
-        return; // Nothing to process
-    }
-    
-    for (const position of targetPositions) {
-        try {
-            // Calculate what the bot should do
-            const botTrade = await calculateBotTrade(position);
-            
-            if (!botTrade.shouldTrade) {
-                continue; // Skip silently if no action needed
-            }
-            
-            // Only log if there's a meaningful action to execute
-            console.log('\n' + '='.repeat(60));
-            console.log(`🔍 Processing target's position:`);
-            console.log(`   ${position.title} - ${position.outcome}`);
-            console.log(`   Target: ${position.size} shares @ avg $${position.avgPrice}`);
-            console.log('='.repeat(60));
-            
-            console.log(`\n💡 Decision: ${botTrade.reason}`);
-            
-            // Check balance before trading
-            const my_balance = await getMyBalance(PROXY_WALLET);
-            console.log(`\n💰 Bot balance: $${my_balance.toFixed(2)} USDC`);
-            
-            // Estimate cost using current market price
-            const estimatedCost = botTrade.size * position.curPrice;
-            
-            if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
-                console.log(`⚠️ Insufficient balance! Need ~$${estimatedCost.toFixed(2)}, have $${my_balance.toFixed(2)}`);
-                continue;
-            }
-            
-            // Execute or simulate the trade
-            let tradeSuccess = true;
-            
-            if (ENV.DRY_RUN) {
-                console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares`);
-                console.log(`   Market price: ~$${position.curPrice}`);
-                console.log(`   Estimated cost: $${estimatedCost.toFixed(2)}`);
-            } else {
-                console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares`);
-                console.log(`   Market price: ~$${position.curPrice}`);
-                
-                const result = await executeOrder(
-                    clobClient,
-                    position.asset,
-                    botTrade.action,
-                    botTrade.size
-                );
-                
-                tradeSuccess = result.success;
-                if (!result.success) {
-                    console.log(`❌ Trade failed: ${result.error}`);
-                }
-            }
-            
-            // Update bot's position (for both dry run and live)
-            if (tradeSuccess) {
-                const sizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
-                const newSize = await updateBotPosition(
-                    position.asset,
-                    position.conditionId,
-                    position.outcomeIndex,
-                    sizeChange,
-                    position.title,
-                    position.outcome
-                );
-                
-                if (ENV.DRY_RUN) {
-                    console.log(`   Bot's simulated new position: ${newSize} shares`);
-                } else {
-                    console.log(`✅ Trade executed successfully!`);
-                    console.log(`   Bot's new position: ${newSize} shares`);
-                }
-            }
-            
-            console.log(''); // Empty line for spacing
-            
-        } catch (error) {
-            console.error('❌ Error processing position:', error);
+
+    const { position, changeType } = change;
+
+    try {
+        // Calculate what the bot should do
+        const botTrade = await calculateBotTrade(position);
+
+        if (!botTrade.shouldTrade) {
+            return; // Skip silently if no action needed
         }
+
+        // Only log if there's a meaningful action to execute
+        console.log('\n' + '='.repeat(60));
+        console.log(`🔍 Processing position change (${changeType}):`);
+        console.log(`   ${position.title} - ${position.outcome}`);
+        console.log(`   Target: ${position.size} shares @ avg $${position.avgPrice}`);
+        console.log('='.repeat(60));
+
+        console.log(`\n💡 Decision: ${botTrade.reason}`);
+
+        // Check balance before trading
+        const my_balance = await getMyBalance(PROXY_WALLET);
+        console.log(`\n💰 Bot balance: $${my_balance.toFixed(2)} USDC`);
+
+        // Estimate cost using current market price
+        const estimatedCost = botTrade.size * position.curPrice;
+
+        if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
+            console.log(`⚠️ Insufficient balance! Need ~$${estimatedCost.toFixed(2)}, have $${my_balance.toFixed(2)}`);
+            return;
+        }
+
+        // Execute or simulate the trade
+        let tradeSuccess = true;
+
+        if (ENV.DRY_RUN) {
+            console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares`);
+            console.log(`   Market price: ~$${position.curPrice}`);
+            console.log(`   Estimated cost: $${estimatedCost.toFixed(2)}`);
+        } else {
+            console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares`);
+            console.log(`   Market price: ~$${position.curPrice}`);
+
+            const result = await executeOrder(
+                clobClient,
+                position.asset,
+                botTrade.action,
+                botTrade.size
+            );
+
+            tradeSuccess = result.success;
+            if (!result.success) {
+                console.log(`❌ Trade failed: ${result.error}`);
+            }
+        }
+
+        // Update bot's position (for both dry run and live)
+        if (tradeSuccess) {
+            const sizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
+            const newSize = await updateBotPosition(
+                position.asset,
+                position.conditionId,
+                position.outcomeIndex,
+                sizeChange,
+                position.title,
+                position.outcome
+            );
+
+            if (ENV.DRY_RUN) {
+                console.log(`   Bot's simulated new position: ${newSize} shares`);
+            } else {
+                console.log(`✅ Trade executed successfully!`);
+                console.log(`   Bot's new position: ${newSize} shares`);
+            }
+        }
+
+        console.log(''); // Empty line for spacing
+
+    } catch (error) {
+        console.error('❌ Error processing position change:', error);
     }
 };
 
@@ -287,16 +272,15 @@ const tradeExecutor = async (clobClient: ClobClient) => {
         console.log(`\n🔷🔷🔷 DRY RUN MODE ENABLED 🔷🔷🔷`);
         console.log(`Orders will be simulated but NOT actually executed\n`);
     }
-    console.log(`Executing Position-Based Copy Trading\n`);
+    console.log(`Trade Executor listening for position changes...\n`);
 
-    while (true) {
-        await processPositions(clobClient);
-        spinner.start('Monitoring positions');
-        
-        // Add delay between checks
-        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
-        spinner.stop();
-    }
+    // Listen for position change events from tradeMonitor
+    positionChangeEmitter.onPositionChange(async (change: PositionChangeEvent) => {
+        await processPositionChange(clobClient, change);
+    });
+
+    // Keep the process alive (event-driven now, no polling loop)
+    console.log(`✅ Event listener registered. Waiting for position changes...\n`);
 };
 
 export default tradeExecutor;

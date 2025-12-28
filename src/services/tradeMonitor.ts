@@ -4,6 +4,7 @@ import { UserPositionInterface } from '../interfaces/User';
 import { getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchPositions from '../utils/fetchPositions';
 import APIRateLimiter from '../utils/apiRateLimiter';
+import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmitter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
@@ -33,6 +34,8 @@ const init = async () => {
         // Fetch and save target's current positions as initial state
         positionsRateLimiter.track();
         const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
+        console.log(`✅ Fetched ${userPositions.length} positions from API\n`);
+            
         
         const startTimestamp = Math.floor(Date.now() / 1000);
         
@@ -76,6 +79,12 @@ const fetchPositionData = async () => {
 
         // Update positions in database and current map
         for (const position of userPositions) {
+            // Skip resolved positions (can't trade on resolved markets)
+            if (position.redeemable) {
+                console.log(`⏭️  Skipping resolved position: ${position.title} - ${position.outcome}`);
+                continue;
+            }
+
             await UserPosition.findOneAndUpdate(
                 { asset: position.asset },
                 { ...position },
@@ -86,15 +95,31 @@ const fetchPositionData = async () => {
             const currentSize = position.size;
             const delta = currentSize - previousSize;
 
-            // Log position changes
+            // Emit position change events and log
             if (Math.abs(delta) > 0.0001) {
+                let changeType: 'new' | 'increase' | 'decrease' | 'closed';
+                
                 if (!previousTargetPositions.has(position.asset)) {
+                    changeType = 'new';
                     console.log(`🆕 New position opened: ${position.title} - ${position.outcome}: ${currentSize} shares`);
                 } else if (delta > 0) {
+                    changeType = 'increase';
                     console.log(`🟢 Position increased: ${position.title} - ${position.outcome}: ${previousSize} → ${currentSize} (+${delta.toFixed(4)})`);
                 } else {
+                    changeType = 'decrease';
                     console.log(`🔴 Position decreased: ${position.title} - ${position.outcome}: ${previousSize} → ${currentSize} (${delta.toFixed(4)})`);
                 }
+
+                // Emit event for trade executor
+                const changeEvent: PositionChangeEvent = {
+                    asset: position.asset,
+                    previousSize,
+                    currentSize,
+                    delta,
+                    position,
+                    changeType
+                };
+                positionChangeEmitter.emitPositionChange(changeEvent);
             }
 
             // Update current positions map
@@ -105,6 +130,18 @@ const fetchPositionData = async () => {
         for (const [asset, previousPosition] of previousTargetPositions.entries()) {
             if (!userPositions.find(p => p.asset === asset)) {
                 console.log(`❌ Position closed: ${previousPosition.title} - ${previousPosition.outcome}`);
+                
+                // Emit closed position event
+                const changeEvent: PositionChangeEvent = {
+                    asset,
+                    previousSize: previousPosition.size,
+                    currentSize: 0,
+                    delta: -previousPosition.size,
+                    position: previousPosition,
+                    changeType: 'closed'
+                };
+                positionChangeEmitter.emitPositionChange(changeEvent);
+                
                 currentTargetPositions.delete(asset);
             }
         }
