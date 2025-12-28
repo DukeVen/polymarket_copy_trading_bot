@@ -95,7 +95,7 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     
     // If no initial position exists for this asset, it's a NEW position opened after bot started
     // Set initial to 0 so bot will copy the full size
-    if (initialTargetSize === 0) {
+    if (false && initialTargetSize === 0) {
         const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
         if (!existingInitial) {
             const startTimestamp = Math.floor(Date.now() / 1000);
@@ -197,9 +197,8 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         // Calculate what the bot should do
         const botTrade = await calculateBotTrade(position);
 
-        if (changeType === 'new') {
-            console.log("DEBUG, shouldTrade = ", botTrade.shouldTrade);
-        }
+        console.log("DEBUG, shouldTrade = ", botTrade.shouldTrade);
+
 
         if (!botTrade.shouldTrade) {
             return; // Skip silently if no action needed
