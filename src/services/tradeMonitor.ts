@@ -10,6 +10,11 @@ import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmit
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
 
+// Position size thresholds
+const POSITION_CLOSE_THRESHOLD = 0.01; // Positions below this are considered closed
+const POSITION_CHANGE_THRESHOLD = 0.01; // Minimum delta to be considered a meaningful change
+const PRECISION_MULTIPLIER = 10000; // For rounding to 4 decimal places
+
 if (!TARGET_ADDRESS) {
     throw new Error('TARGET_ADDRESS is not defined');
     console.log('TARGET_ADDRESS is not defined');
@@ -127,14 +132,14 @@ const fetchActivitiesAndProcessTrades = async () => {
                 }
                 weightedPriceSum += trade.price * trade.size;
             }
-            netSizeChange = Math.round(netSizeChange * 1000000) / 1000000;
+            netSizeChange = Math.round(netSizeChange * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
 
             // Get current tracked position - this is our source of truth
             // We CANNOT fetch from Positions API here because it may have newer data
             // than what Activities API has returned, causing incorrect calculations
             const currentPosition = currentTargetPositions.get(asset);
             let previousSize = currentPosition?.size || 0;
-            previousSize = Math.round(previousSize * 1000000) / 1000000;
+            previousSize = Math.round(previousSize * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
 
             // Handle initial position tracking - check if we had this position in our tracking
             const wasTracked = currentTargetPositions.has(asset);
@@ -165,24 +170,24 @@ const fetchActivitiesAndProcessTrades = async () => {
             
             // Calculate new size and round to avoid floating point issues
             let newSize = Math.max(0, previousSize + netSizeChange);
-            newSize = Math.round(newSize * 1000000) / 1000000;
+            newSize = Math.round(newSize * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
             
             // Treat very small positions as fully closed
-            if (newSize < 0.01) {
+            if (newSize < POSITION_CLOSE_THRESHOLD) {
                 newSize = 0;
             }
             
-            const delta = Math.round((newSize - previousSize) * 1000000) / 1000000;
+            const delta = Math.round((newSize - previousSize) * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
 
             // Determine change type and log
             let changeType: 'new' | 'increase' | 'decrease' | 'closed';
             const tradeInfo = trades.length > 1 ? ` (${trades.length} trades combined)` : '';
             
             // Check if this was a position we weren't tracking AND previous size was very small/zero
-            if (!wasTracked && previousSize < 0.01 && newSize > 0) {
+            if (!wasTracked && previousSize < POSITION_CLOSE_THRESHOLD && newSize > 0) {
                 changeType = 'new';
                 console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
-            } else if (newSize < 0.01) {
+            } else if (newSize < POSITION_CLOSE_THRESHOLD) {
                 changeType = 'closed';
                 console.log(`❌ Position closed: ${firstTrade.title} - ${firstTrade.outcome}${tradeInfo}`);
                 
@@ -193,10 +198,10 @@ const fetchActivitiesAndProcessTrades = async () => {
                     { size: 0 },
                     { upsert: true }
                 );
-            } else if (delta > 0.0001) {
+            } else if (delta > POSITION_CHANGE_THRESHOLD) {
                 changeType = 'increase';
                 console.log(`🟢 Position increased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})${tradeInfo}`);
-            } else if (delta < -0.0001) {
+            } else if (delta < -POSITION_CHANGE_THRESHOLD) {
                 changeType = 'decrease';
                 console.log(`🔴 Position decreased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (${delta.toFixed(4)})${tradeInfo}`);
             } else {

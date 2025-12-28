@@ -106,11 +106,6 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     // Calculate what trade bot needs to make
     let botSizeChange = botTargetSize - botCurrentSize;
     botSizeChange = Math.round(botSizeChange * 1000000) / 1000000;
-
-    console.log("initial target size: ", initialTargetSize);
-    console.log("current target size: ", currentTargetSize);
-    console.log("bot target size: ", botTargetSize);
-    console.log("bot current size: ", botCurrentSize);
     
     // Only log detailed analysis if there's a trade to make
     if (Math.abs(botSizeChange) >= 0.0001) {
@@ -122,6 +117,11 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
         console.log(`   Bot should have: ${botTargetSize} shares`);
         console.log(`   Bot needs to: ${botSizeChange > 0 ? 'BUY' : 'SELL'} ${Math.abs(botSizeChange)} shares`);
     }
+
+    console.log("initial target size: ", initialTargetSize);
+    console.log("current target size: ", currentTargetSize);
+    console.log("bot target size: ", botTargetSize);
+    console.log("bot current size: ", botCurrentSize);
     
     if (Math.abs(botSizeChange) < 0.0001) {
         return {
