@@ -260,9 +260,25 @@ const tradeExecutor = async (clobClient: ClobClient) => {
     }
     console.log(`Trade Executor listening for position changes...\n`);
 
+    // Queue to process events sequentially
+    const eventQueue: PositionChangeEvent[] = [];
+    let isProcessing = false;
+
+    const processQueue = async () => {
+        if (isProcessing || eventQueue.length === 0) return;
+        
+        isProcessing = true;
+        while (eventQueue.length > 0) {
+            const change = eventQueue.shift()!;
+            await processPositionChange(clobClient, change);
+        }
+        isProcessing = false;
+    };
+
     // Listen for position change events from tradeMonitor
-    positionChangeEmitter.onPositionChange(async (change: PositionChangeEvent) => {
-        await processPositionChange(clobClient, change);
+    positionChangeEmitter.onPositionChange((change: PositionChangeEvent) => {
+        eventQueue.push(change);
+        processQueue(); // Process queue sequentially
     });
 
     // Keep the process alive (event-driven now, no polling loop)

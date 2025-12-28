@@ -91,74 +91,108 @@ const fetchActivitiesAndProcessTrades = async () => {
             .filter(a => a.type === 'TRADE' && a.timestamp > lastProcessedActivityTimestamp)
             .sort((a, b) => a.timestamp - b.timestamp); // Process oldest first
 
+        if (newTrades.length === 0) {
+            return;
+        }
+
+        // Group all new trades by asset - process the net change per asset
+        const tradesByAsset = new Map<string, UserActivityInterface[]>();
         for (const trade of newTrades) {
+            if (!tradesByAsset.has(trade.asset)) {
+                tradesByAsset.set(trade.asset, []);
+            }
+            tradesByAsset.get(trade.asset)!.push(trade);
             // Update last processed timestamp
             lastProcessedActivityTimestamp = Math.max(lastProcessedActivityTimestamp, trade.timestamp);
+        }
 
-            // Get current position for this asset
-            const currentPosition = currentTargetPositions.get(trade.asset);
+        // Process each asset's trades as a single net change
+        for (const [asset, trades] of tradesByAsset) {
+            const firstTrade = trades[0];
+            const lastTrade = trades[trades.length - 1];
+
+            // Get current tracked position BEFORE any of these trades
+            const currentPosition = currentTargetPositions.get(asset);
             const previousSize = currentPosition?.size || 0;
-
-            // Calculate new size based on trade
-            let newSize = previousSize;
-            if (trade.side === 'BUY') {
-                newSize = previousSize + trade.size;
-            } else if (trade.side === 'SELL') {
-                newSize = Math.max(0, previousSize - trade.size);
-            }
-
-            const delta = newSize - previousSize;
 
             // Save initial position if this is first time seeing this asset
             if (!currentPosition) {
-                const existingInitial = await InitialTargetPosition.findOne({ asset: trade.asset }).exec();
+                const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
                 if (!existingInitial) {
                     const startTimestamp = Math.floor(Date.now() / 1000);
                     await new InitialTargetPosition({
-                        conditionId: trade.conditionId,
-                        asset: trade.asset,
-                        size: 0, // New position after bot started - initial is 0
-                        outcomeIndex: trade.outcomeIndex,
+                        conditionId: firstTrade.conditionId,
+                        asset: asset,
+                        size: previousSize,
+                        outcomeIndex: firstTrade.outcomeIndex,
                         startTimestamp: startTimestamp,
                     }).save();
                 }
             }
 
-            // Determine change type
+            // Calculate net size change from all trades for this asset
+            let netSizeChange = 0;
+            let totalBuySize = 0;
+            let totalSellSize = 0;
+            let weightedPriceSum = 0;
+
+            for (const trade of trades) {
+                if (trade.side === 'BUY') {
+                    netSizeChange += trade.size;
+                    totalBuySize += trade.size;
+                } else if (trade.side === 'SELL') {
+                    netSizeChange -= trade.size;
+                    totalSellSize += trade.size;
+                }
+                weightedPriceSum += trade.price * trade.size;
+            }
+
+            const avgPrice = (totalBuySize + totalSellSize) > 0 ? weightedPriceSum / (totalBuySize + totalSellSize) : lastTrade.price;
+            const newSize = Math.max(0, previousSize + netSizeChange);
+            const delta = newSize - previousSize;
+
+            // Determine change type and log
             let changeType: 'new' | 'increase' | 'decrease' | 'closed';
+            const tradeInfo = trades.length > 1 ? ` (${trades.length} trades combined)` : '';
+            
             if (!currentPosition && newSize > 0) {
                 changeType = 'new';
-                console.log(`🆕 New position opened: ${trade.title} - ${trade.outcome}: ${newSize} shares (${trade.side} ${trade.size})`);
-            } else if (newSize === 0) {
+                console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
+            } else if (newSize < 0.01) {
                 changeType = 'closed';
-                console.log(`❌ Position closed: ${trade.title} - ${trade.outcome} (SOLD ${trade.size})`);
+                console.log(`❌ Position closed: ${firstTrade.title} - ${firstTrade.outcome}${tradeInfo}`);
             } else if (delta > 0) {
                 changeType = 'increase';
-                console.log(`🟢 Position increased: ${trade.title} - ${trade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})`);
-            } else {
+                console.log(`🟢 Position increased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})${tradeInfo}`);
+            } else if (delta < 0) {
                 changeType = 'decrease';
-                console.log(`🔴 Position decreased: ${trade.title} - ${trade.outcome}: ${previousSize} → ${newSize} (${delta.toFixed(4)})`);
+                console.log(`🔴 Position decreased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (${delta.toFixed(4)})${tradeInfo}`);
+            } else {
+                // No net change (e.g., bought 10 then sold 10)
+                continue; // Skip emitting event
             }
 
             // Create position object for the event
             const positionForEvent: UserPositionInterface = currentPosition ? {
                 ...currentPosition,
-                size: newSize
-            } : {
-                asset: trade.asset,
-                conditionId: trade.conditionId,
                 size: newSize,
-                title: trade.title,
-                outcome: trade.outcome,
-                outcomeIndex: trade.outcomeIndex,
-                avgPrice: trade.price,
-                curPrice: trade.price,
+                avgPrice: avgPrice,
+                curPrice: avgPrice,
+            } : {
+                asset: asset,
+                conditionId: firstTrade.conditionId,
+                size: newSize,
+                title: firstTrade.title,
+                outcome: firstTrade.outcome,
+                outcomeIndex: firstTrade.outcomeIndex,
+                avgPrice: avgPrice,
+                curPrice: avgPrice,
                 redeemable: false,
             } as any;
 
-            // Emit event for trade executor
+            // Emit single event for the net change in this asset
             const changeEvent: PositionChangeEvent = {
-                asset: trade.asset,
+                asset: asset,
                 previousSize,
                 currentSize: newSize,
                 delta,
@@ -168,10 +202,10 @@ const fetchActivitiesAndProcessTrades = async () => {
             positionChangeEmitter.emitPositionChange(changeEvent);
 
             // Update our local tracking
-            if (newSize > 0) {
-                currentTargetPositions.set(trade.asset, positionForEvent);
+            if (newSize > 0.01) {
+                currentTargetPositions.set(asset, positionForEvent);
             } else {
-                currentTargetPositions.delete(trade.asset);
+                currentTargetPositions.delete(asset);
             }
         }
 
