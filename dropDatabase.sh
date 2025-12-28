@@ -1,0 +1,1 @@
+mongosh polymarket --eval "db.dropDatabase(); print('Database dropped')"
