@@ -19,18 +19,39 @@ const UserActivity = getUserActivityModel(TARGET_ADDRESS);
 const BotPosition = getBotPositionModel();
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
+// Cache for position fetches to avoid hammering the API
+let positionCache: { data: UserPositionInterface[], timestamp: number } | null = null;
+const POSITION_CACHE_TTL = 5000; // 5 seconds
+
 // Fetch FRESH target position from API to avoid stale data
 const getFreshTargetPosition = async (asset: string): Promise<number> => {
     try {
+        const now = Date.now();
+        
+        // Use cache if fresh (less than 5 seconds old)
+        if (positionCache && (now - positionCache.timestamp) < POSITION_CACHE_TTL) {
+            const position = positionCache.data.find(p => p.asset === asset);
+            const size = position ? position.size : 0;
+            console.log(`   [Cached] Asset ${asset.substring(0, 10)}... current: ${size} shares`);
+            return size;
+        }
+        
+        // Fetch fresh data
+        console.log(`   [Fetching API...]`);
         const positions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
+        
+        // Update cache
+        positionCache = { data: positions, timestamp: now };
+        
         const position = positions.find(p => p.asset === asset);
         const size = position ? position.size : 0;
         console.log(`   [Fresh API] Asset ${asset.substring(0, 10)}... current: ${size} shares`);
         return size;
     } catch (error) {
         console.error('⚠️ Error fetching fresh position from API:', error);
+        console.error('   Error details:', String(error));
         return 0;
     }
 };
