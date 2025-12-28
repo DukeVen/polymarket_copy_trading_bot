@@ -71,41 +71,57 @@ const fetchActivitiesAndProcessTrades = async () => {
             lastProcessedActivityTimestamp = Math.max(lastProcessedActivityTimestamp, trade.timestamp);
         }
 
-        console.log(`${"=".repeat(50)}\nProcessing ${newTrades.length} new trade activities at ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}\n${"=".repeat(50)}`);
+        console.log(`\n${"═".repeat(60)}`);
+        console.log(`📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
+        console.log(`⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+        console.log(`${"═".repeat(60)}\n`);
 
         // Process each asset's trades as a single net change
         // asset = assetId
         // trades = array of trade activities for that asset
         for (const [asset, trades] of tradesByAsset) {
-            console.log(`${"-".repeat(15)}`);
-
             const firstTrade = trades[0];
-
-            // Calculate net size change from all trades
-            let netSizeChange = calcNetSizeChange(trades);
-
-            // Log trades
+            const netSizeChange = calcNetSizeChange(trades);
+            
+            console.log(`\n┌${"─".repeat(58)}┐`);
+            console.log(`│ Market: ${firstTrade.title}`);
+            console.log(`│ Outcome: ${firstTrade.outcome}`);
+            console.log(`└${"─".repeat(58)}┘`);
+            
+            // Log individual trades
+            if (trades.length > 1) {
+                console.log(`\n  Individual Trades (${trades.length} total):`);
+            }
             for (const trade of trades) {
-                console.log(`[Trade] ${moment.unix(trade.timestamp).format('YYYY-MM-DD HH:mm:ss')} - ${trade.side} \n${trade.size} shares of ${trade.title} - ${trade.outcome} at $${trade.price} \n(Tx: ${trade.transactionHash})\n`);
+                const emoji = trade.side === 'BUY' ? '🟢' : '🔴';
+                const time = moment.unix(trade.timestamp).format('HH:mm:ss');
+                const txShort = trade.transactionHash.substring(0, 10);
+                console.log(`  ${emoji} ${trade.side.padEnd(4)} │ ${time} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price} │ Tx: ${txShort}...`);
             }
 
-            console.log(`Net size change for ${firstTrade.title} - ${firstTrade.outcome}: ${netSizeChange} shares`);
-
-            let tradeVerdict = 'UNKNOWN';
+            // Determine verdict
+            let tradeVerdict = '';
+            let verdictEmoji = '';
             if (netSizeChange > POSITION_CLOSE_THRESHOLD) {
                 tradeVerdict = 'BUY';
+                verdictEmoji = '🟢';
             } else if (netSizeChange < -POSITION_CLOSE_THRESHOLD) {
                 tradeVerdict = 'SELL';
+                verdictEmoji = '🔴';
             } else {
-                tradeVerdict = 'NO CHANGE (buy and sell)';
+                tradeVerdict = 'NO CHANGE';
+                verdictEmoji = '⚪';
             }
 
-            console.log(`\nTRADE VERDICT: ${tradeVerdict}\n`);
-
-            console.log(`${"-".repeat(15)}\n`);
+            console.log(`\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+            console.log(`  Net Position Change: ${netSizeChange > 0 ? '+' : ''}${netSizeChange} shares`);
+            console.log(`  ${verdictEmoji} VERDICT: ${tradeVerdict}`);
+            console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
         }
 
-        console.log(`${"=".repeat(15)} END OF PROCESSING ${"=".repeat(15)}\n`);
+        console.log(`${"═".repeat(60)}`);
+        console.log(`✅ Processing Complete`);
+        console.log(`${"═".repeat(60)}\n`);
 
 
     } catch (error) {
