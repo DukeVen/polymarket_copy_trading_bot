@@ -71,6 +71,31 @@ const initializeBotPositions = async () => {
         throw error;
     }
 };
+
+
+// todo, use batched orders?
+/*
+const orders: PostOrdersArgs[] = [
+  {
+    order: await clobClient.createMarketOrder({
+      tokenID: YES,
+      amount: 100,
+      side: Side.BUY,
+    }),
+    orderType: OrderType.FOK,  // or FAK for market orders
+  },
+  {
+    order: await clobClient.createMarketOrder({
+      tokenID: NO,
+      amount: 50,
+      side: Side.BUY,
+    }),
+    orderType: OrderType.FAK,
+  },
+];
+
+const resp = await clobClient.postOrders(orders);
+*/
 const executeOrder = async (
     clobClient: ClobClient,
     tokenID: string,
@@ -80,19 +105,20 @@ const executeOrder = async (
     try {
         const orderSide = side === 'BUY' ? Side.BUY : Side.SELL;
         
-        const order_args = {
-            side: orderSide,
+        const userMarketOrder = {
             tokenID: tokenID,
             amount: size,
+            side: orderSide,
         };
         
-        const signedOrder = await clobClient.createMarketOrder(order_args);
-        const resp = await clobClient.postOrder(signedOrder, OrderType.FOK);
+        // Use createAndPostMarketOrder - convenience method that creates, signs, and posts in one call
+        // FAK (Fill-And-Kill) is better for copy trading - executes partial fills instead of failing completely
+        const resp = await clobClient.createAndPostMarketOrder(userMarketOrder, undefined, OrderType.FAK);
         
         if (resp.success === true) {
             return { success: true };
         } else {
-            return { success: false, error: JSON.stringify(resp) };
+            return { success: false, error: resp.errorMsg || JSON.stringify(resp) };
         }
     } catch (error) {
         return { success: false, error: String(error) };
