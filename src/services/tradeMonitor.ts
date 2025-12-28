@@ -84,7 +84,7 @@ const fetchActivitiesAndProcessTrades = async () => {
 
             // Log trades
             for (const trade of trades) {
-                console.log(`[Trade] ${moment.unix(trade.timestamp).format('YYYY-MM-DD HH:mm:ss')} \n${trade.side} \n${trade.size} shares of ${trade.title} - ${trade.outcome} at $${trade.price} \n(Tx: ${trade.transactionHash})`);
+                console.log(`[Trade] ${moment.unix(trade.timestamp).format('YYYY-MM-DD HH:mm:ss')} - ${trade.side} \n${trade.size} shares of ${trade.title} - ${trade.outcome} at $${trade.price} \n(Tx: ${trade.transactionHash})\n`);
             }
 
             console.log(`Net size change for ${firstTrade.title} - ${firstTrade.outcome}: ${netSizeChange} shares`);
