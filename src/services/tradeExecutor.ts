@@ -1,5 +1,4 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
-import { UserPositionInterface, BotPositionInterface } from '../interfaces/User';
 import { ENV } from '../config/env';
 import { getBotPositionModel } from '../models/userHistory';
 import getMyBalance from '../utils/getMyBalance';
@@ -8,6 +7,7 @@ import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmit
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
+const MAX_ORDER_AMOUNT = ENV.MAX_ORDER_AMOUNT;
 const DRY_RUN = ENV.DRY_RUN;
 
 const PRECISION_MULTIPLIER = 10000; // For rounding to 4 decimal places
@@ -268,7 +268,19 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         // Estimate cost using market price
         const estimatedCost = botTrade.size * (curPrice || avgPrice);
 
-        if (!ENV.DRY_RUN && botTrade.action === 'BUY' && estimatedCost > my_balance) {
+        // Check if order exceeds MAX_ORDER_AMOUNT limit
+        if (botTrade.action === 'BUY' && estimatedCost > MAX_ORDER_AMOUNT) {
+            console.log(`[EXECUTOR] \n⚠️ TRADE SKIPPED - EXCEEDS MAX ORDER AMOUNT`);
+            console.log(`[EXECUTOR]    Market: ${title} - ${outcome}`);
+            console.log(`[EXECUTOR]    Action: ${botTrade.action} ${botTrade.size} shares`);
+            console.log(`[EXECUTOR]    Estimated Cost: $${estimatedCost.toFixed(2)}`);
+            console.log(`[EXECUTOR]    Max Allowed: $${MAX_ORDER_AMOUNT.toFixed(2)}`);
+            console.log(`[EXECUTOR]    Exceeded By: $${(estimatedCost - MAX_ORDER_AMOUNT).toFixed(2)}\n`);
+            console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
+            return;
+        }
+
+        if (!DRY_RUN && botTrade.action === 'BUY' && estimatedCost > my_balance) {
             console.log(`[EXECUTOR] \n❌ INSUFFICIENT BALANCE!`);
             console.log(`[EXECUTOR]    Need: ~$${estimatedCost.toFixed(2)}`);
             console.log(`[EXECUTOR]    Have: $${my_balance.toFixed(2)}`);
@@ -280,7 +292,7 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         // Execute or simulate the trade
         let tradeSuccess = true;
 
-        if (ENV.DRY_RUN) {
+        if (DRY_RUN) {
             console.log(`[EXECUTOR] \n🔷 DRY RUN MODE`);
             console.log(`[EXECUTOR]    Action: ${botTrade.action}`);
             console.log(`[EXECUTOR]    Size: ${botTrade.size} shares`);
@@ -325,7 +337,7 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
                 outcome
             );
 
-            if (ENV.DRY_RUN) {
+            if (DRY_RUN) {
                 console.log(`[EXECUTOR] \n✅ SIMULATED SUCCESSFULLY`);
             } else {
                 console.log(`[EXECUTOR] \n✅ TRADE EXECUTED SUCCESSFULLY`);
@@ -350,7 +362,7 @@ const tradeExecutor = async (clobClient: ClobClient) => {
         await initializeBotPositions();
     }
 
-    if (ENV.DRY_RUN) {
+    if (DRY_RUN) {
         console.log(`🔷🔷🔷 DRY RUN MODE ENABLED 🔷🔷🔷`);
         console.log(`Orders will be simulated but NOT actually executed\n`);
     }

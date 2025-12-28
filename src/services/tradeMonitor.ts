@@ -1,8 +1,6 @@
 import moment from 'moment';
 import { ENV } from '../config/env';
 import { UserPositionInterface, UserActivityInterface } from '../interfaces/User';
-import { getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
-import fetchPositions from '../utils/fetchPositions';
 import fetchData from '../utils/fetchData';
 import APIRateLimiter from '../utils/apiRateLimiter';
 import spinner from '../utils/spinner';
@@ -12,8 +10,7 @@ const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
 
 // Position size thresholds
-const POSITION_CLOSE_THRESHOLD = 0.01; // Positions below this are considered closed
-const POSITION_CHANGE_THRESHOLD = 0.01; // Minimum delta to be considered a meaningful change
+const SHARE_EPSILON = 0.01; // Positions below this are considered closed
 const PRECISION_MULTIPLIER = 10000; // For rounding to 4 decimal places
 
 if (!TARGET_ADDRESS) {
@@ -21,12 +18,10 @@ if (!TARGET_ADDRESS) {
 }
 
 // Initialize rate limiters
-const positionsRateLimiter = new APIRateLimiter('Positions', 150);
 const activitiesRateLimiter = new APIRateLimiter('Activities', 200);
 
 
 let isInitialized = false;
-let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // Track current positions
 let lastProcessedActivityTimestamp = 0; // Track last activity we've processed
 
 const init = () => {
@@ -133,11 +128,11 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
         let verdictEmoji = '';
         let changeType: 'new' | 'increase' | 'decrease' | 'closed' | 'none' = 'none';
         
-        if (netSizeChange > POSITION_CLOSE_THRESHOLD) {
+        if (netSizeChange > SHARE_EPSILON) {
             tradeVerdict = 'BUY';
             verdictEmoji = '🟢';
             changeType = 'increase';
-        } else if (netSizeChange < -POSITION_CLOSE_THRESHOLD) {
+        } else if (netSizeChange < -SHARE_EPSILON) {
             tradeVerdict = 'SELL';
             verdictEmoji = '🔴';
             changeType = 'decrease';
