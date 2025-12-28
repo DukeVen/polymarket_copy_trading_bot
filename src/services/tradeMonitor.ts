@@ -1,8 +1,9 @@
 import moment from 'moment';
 import { ENV } from '../config/env';
-import { UserPositionInterface } from '../interfaces/User';
+import { UserPositionInterface, UserActivityInterface } from '../interfaces/User';
 import { getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchPositions from '../utils/fetchPositions';
+import fetchData from '../utils/fetchData';
 import APIRateLimiter from '../utils/apiRateLimiter';
 import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmitter';
 
@@ -14,15 +15,16 @@ if (!TARGET_ADDRESS) {
     console.log('TARGET_ADDRESS is not defined');
 }
 
-// Initialize rate limiter (only positions API now)
+// Initialize rate limiters
 const positionsRateLimiter = new APIRateLimiter('Positions', 150);
+const activitiesRateLimiter = new APIRateLimiter('Activities', 200);
 
 const UserPosition = getUserPositionModel(TARGET_ADDRESS);
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
 let isInitialized = false;
-let previousTargetPositions: Map<string, UserPositionInterface> = new Map(); // Previous poll snapshot
-let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // Current positions
+let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // Track current positions
+let lastProcessedActivityTimestamp = 0; // Track last activity we've processed
 
 const init = async () => {
     // Check if we've already saved initial positions
@@ -54,134 +56,127 @@ const init = async () => {
             currentTargetPositions.set(position.asset, position);
         }
         
-        console.log(`✅ Snapshot complete. Bot will only copy NEW position changes from now on.\n`);
+        console.log(`✅ Snapshot complete. Bot will track trades from Activities API.\n`);
     } else {
         console.log('✅ Initial positions already saved. Resuming from previous state.\n');
         
-        // Load current positions
-        await fetchPositionData();
+        // Load current positions from Positions API
+        positionsRateLimiter.track();
+        const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
+        for (const position of userPositions) {
+            currentTargetPositions.set(position.asset, position);
+        }
     }
     
-    // Copy current to previous for first comparison
-    previousTargetPositions = new Map(currentTargetPositions);
+    // Set last processed timestamp to now (only process new activities going forward)
+    lastProcessedActivityTimestamp = Math.floor(Date.now() / 1000);
     
     isInitialized = true;
 };
 
-const fetchPositionData = async () => {
+const fetchActivitiesAndProcessTrades = async () => {
     try {
-        // Fetch target positions from Polymarket API
-        positionsRateLimiter.track();
-        const userPositions: UserPositionInterface[] = await fetchPositions(TARGET_ADDRESS);
+        // Fetch recent activities from Polymarket API
+        activitiesRateLimiter.track();
+        const activities: UserActivityInterface[] = await fetchData(
+            `https://data-api.polymarket.com/activity?user=${TARGET_ADDRESS}&limit=100&_=${Date.now()}`
+        );
 
-        console.log(`\n[DEBUG] Fetched ${userPositions.length} positions from API`);
-        console.log(`[DEBUG] previousTargetPositions has ${previousTargetPositions.size} positions`);
-        console.log(`[DEBUG] currentTargetPositions has ${currentTargetPositions.size} positions`);
+        if (activities.length === 0) {
+            return;
+        }
 
-        // Store previous positions before updating
-        previousTargetPositions = new Map(currentTargetPositions);
+        // Filter to only TRADE activities that are newer than last processed
+        const newTrades = activities
+            .filter(a => a.type === 'TRADE' && a.timestamp > lastProcessedActivityTimestamp)
+            .sort((a, b) => a.timestamp - b.timestamp); // Process oldest first
 
-        // Clear to rebuild from fresh API data
-        const newCurrentPositions = new Map<string, UserPositionInterface>();
+        for (const trade of newTrades) {
+            // Update last processed timestamp
+            lastProcessedActivityTimestamp = Math.max(lastProcessedActivityTimestamp, trade.timestamp);
 
-        // Update positions in database and current map
-        for (const position of userPositions) {
-            // Skip resolved positions (can't trade on resolved markets)
-            if (position.redeemable) {
-                console.log(`⏭️  Skipping resolved position: ${position.title} - ${position.outcome}`);
-                continue;
+            // Get current position for this asset
+            const currentPosition = currentTargetPositions.get(trade.asset);
+            const previousSize = currentPosition?.size || 0;
+
+            // Calculate new size based on trade
+            let newSize = previousSize;
+            if (trade.side === 'BUY') {
+                newSize = previousSize + trade.size;
+            } else if (trade.side === 'SELL') {
+                newSize = Math.max(0, previousSize - trade.size);
             }
 
-            await UserPosition.findOneAndUpdate(
-                { asset: position.asset },
-                { ...position },
-                { upsert: true, new: true }
-            );
+            const delta = newSize - previousSize;
 
-            const previousSize = previousTargetPositions.get(position.asset)?.size || 0;
-            const currentSize = position.size;
-            const delta = currentSize - previousSize;
-
-            // Save initial position if this is the first time we're seeing this asset
-            if (!previousTargetPositions.has(position.asset)) {
-                const existingInitial = await InitialTargetPosition.findOne({ asset: position.asset }).exec();
+            // Save initial position if this is first time seeing this asset
+            if (!currentPosition) {
+                const existingInitial = await InitialTargetPosition.findOne({ asset: trade.asset }).exec();
                 if (!existingInitial) {
                     const startTimestamp = Math.floor(Date.now() / 1000);
                     await new InitialTargetPosition({
-                        conditionId: position.conditionId,
-                        asset: position.asset,
+                        conditionId: trade.conditionId,
+                        asset: trade.asset,
                         size: 0, // New position after bot started - initial is 0
-                        outcomeIndex: position.outcomeIndex,
+                        outcomeIndex: trade.outcomeIndex,
                         startTimestamp: startTimestamp,
                     }).save();
                 }
             }
 
-            // Emit position change events and log
-            if (Math.abs(delta) > 0.0001) {
-                let changeType: 'new' | 'increase' | 'decrease' | 'closed';
-                
-                if (!previousTargetPositions.has(position.asset)) {
-                    changeType = 'new';
-                    console.log(`🆕 New position opened: ${position.title} - ${position.outcome}: ${currentSize} shares`);
-                } else if (delta > 0) {
-                    changeType = 'increase';
-                    console.log(`🟢 Position increased: ${position.title} - ${position.outcome}: ${previousSize} → ${currentSize} (+${delta.toFixed(4)})`);
-                } else {
-                    changeType = 'decrease';
-                    console.log(`🔴 Position decreased: ${position.title} - ${position.outcome}: ${previousSize} → ${currentSize} (${delta.toFixed(4)})`);
-                }
-
-                // Emit event for trade executor
-                const changeEvent: PositionChangeEvent = {
-                    asset: position.asset,
-                    previousSize,
-                    currentSize,
-                    delta,
-                    position,
-                    changeType
-                };
-                positionChangeEmitter.emitPositionChange(changeEvent);
+            // Determine change type
+            let changeType: 'new' | 'increase' | 'decrease' | 'closed';
+            if (!currentPosition && newSize > 0) {
+                changeType = 'new';
+                console.log(`🆕 New position opened: ${trade.title} - ${trade.outcome}: ${newSize} shares (${trade.side} ${trade.size})`);
+            } else if (newSize === 0) {
+                changeType = 'closed';
+                console.log(`❌ Position closed: ${trade.title} - ${trade.outcome} (SOLD ${trade.size})`);
+            } else if (delta > 0) {
+                changeType = 'increase';
+                console.log(`🟢 Position increased: ${trade.title} - ${trade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})`);
+            } else {
+                changeType = 'decrease';
+                console.log(`🔴 Position decreased: ${trade.title} - ${trade.outcome}: ${previousSize} → ${newSize} (${delta.toFixed(4)})`);
             }
 
-            // Update current positions map
-            newCurrentPositions.set(position.asset, position);
-        }
+            // Create position object for the event
+            const positionForEvent: UserPositionInterface = currentPosition ? {
+                ...currentPosition,
+                size: newSize
+            } : {
+                asset: trade.asset,
+                conditionId: trade.conditionId,
+                size: newSize,
+                title: trade.title,
+                outcome: trade.outcome,
+                outcomeIndex: trade.outcomeIndex,
+                avgPrice: trade.price,
+                curPrice: trade.price,
+                redeemable: false,
+            } as any;
 
-        // Detect closed positions (in previous but not in new API response)
-        for (const [asset, previousPosition] of previousTargetPositions.entries()) {
-            if (!newCurrentPositions.has(asset)) {
-                console.log(`[DEBUG] Detected close: ${previousPosition.title} was in previous but not in new`);
-                console.log(`❌ Position closed: ${previousPosition.title} - ${previousPosition.outcome}`);
-                
-                // Create a modified position object with size = 0 to represent closure
-                const closedPosition: UserPositionInterface = {
-                    ...previousPosition,
-                    size: 0
-                };
-                
-                // Emit closed position event
-                const changeEvent: PositionChangeEvent = {
-                    asset,
-                    previousSize: previousPosition.size,
-                    currentSize: 0,
-                    delta: -previousPosition.size,
-                    position: closedPosition,  // Send modified position with size = 0
-                    changeType: 'closed'
-                };
-                positionChangeEmitter.emitPositionChange(changeEvent);
-                
-                // Don't add to newCurrentPositions (it's closed)
+            // Emit event for trade executor
+            const changeEvent: PositionChangeEvent = {
+                asset: trade.asset,
+                previousSize,
+                currentSize: newSize,
+                delta,
+                position: positionForEvent,
+                changeType
+            };
+            positionChangeEmitter.emitPositionChange(changeEvent);
+
+            // Update our local tracking
+            if (newSize > 0) {
+                currentTargetPositions.set(trade.asset, positionForEvent);
+            } else {
+                currentTargetPositions.delete(trade.asset);
             }
         }
-
-        // Update current positions to the new state
-        currentTargetPositions = newCurrentPositions;
-        
-        console.log(`[DEBUG] After update, currentTargetPositions has ${currentTargetPositions.size} positions\n`);
 
     } catch (error) {
-        console.error('Error fetching position data:', error);
+        console.error('Error fetching activities:', error);
     }
 };
 
@@ -192,12 +187,12 @@ const tradeMonitor = async () => {
         await init();
     }
     
-    console.log('Position Monitor is running every', FETCH_INTERVAL, 'seconds');
-    console.log('Tracking position changes via Positions API only\n');
+    console.log('Trade Monitor is running every', FETCH_INTERVAL, 'seconds');
+    console.log('Tracking trades via Activities API (no flickers!)\n');
 
     // Start monitoring loop
     while (true) {
-        await fetchPositionData();
+        await fetchActivitiesAndProcessTrades();
         await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
     }
 };
