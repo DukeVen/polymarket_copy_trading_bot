@@ -16,7 +16,7 @@ const fetchPositions = async (walletAddress: string): Promise<UserPositionInterf
         while (hasMore) {
             // redeemable=false to exclude positions that are resolved
             const positions: UserPositionInterface[] = await fetchData(
-                `https://data-api.polymarket.com/positions?user=${walletAddress}&limit=${limit}&offset=${offset}&redeemable=false&_=${Date.now()}`
+                `https://data-api.polymarket.com/positions?user=${walletAddress}&limit=${limit}&offset=${offset}&redeemable=false&build=${Date.now()}`
             );
 
             if (positions.length === 0) {
