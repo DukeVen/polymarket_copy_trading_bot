@@ -240,14 +240,14 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         );
 
         if (!botTrade.shouldTrade) {
-            console.log(`\n\n[EXECUTOR] ⏭️  Skipped: ${title} - ${outcome}`);
+            console.log(`\n[EXECUTOR] ⏭️  Skipped: ${title} - ${outcome}`);
             console.log(`[EXECUTOR]    Reason: ${botTrade.reason}`);
-            console.log(`\n`);
+            console.log('\n🔄 ' + '━'.repeat(68) + ' 🔄\n');
             return;
         }
 
         // Log the action we're about to take
-        console.log('\n\n[EXECUTOR] ' + '='.repeat(70));
+        console.log('\n[EXECUTOR] ' + '='.repeat(70));
         console.log(`[EXECUTOR] 🎯 Target Trade Detected (${changeType.toUpperCase()}):`);
         console.log(`[EXECUTOR]    Market: ${title}`);
         console.log(`[EXECUTOR]    Outcome: ${outcome}`);
@@ -272,7 +272,8 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             console.log(`[EXECUTOR]    Need: ~$${estimatedCost.toFixed(2)}`);
             console.log(`[EXECUTOR]    Have: $${my_balance.toFixed(2)}`);
             console.log(`[EXECUTOR]    Missing: $${(estimatedCost - my_balance).toFixed(2)}\n`);
-            console.log('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
+            console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
+            console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
             return;
         }
 
@@ -307,7 +308,8 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             if (!result.success) {
                 console.log(`[EXECUTOR] \n❌ TRADE FAILED`);
                 console.log(`[EXECUTOR]    Error: ${result.error}`);
-                console.log('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
+                console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
+                console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
                 return;
             }
         }
@@ -333,13 +335,15 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             console.log(`[EXECUTOR]    Position Change: ${actualSizeChange > 0 ? '+' : ''}${actualSizeChange}`);
         }
 
-        console.log('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
+        console.log('[EXECUTOR] ' + '='.repeat(70) + '\n');
+        console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
 
     } catch (error) {
         console.error('[EXECUTOR] \n❌ ERROR PROCESSING POSITION CHANGE');
         console.error(`[EXECUTOR]    Market: ${title} - ${outcome}`);
         console.error(`[EXECUTOR]    Error: ${error}`);
-        console.error('[EXECUTOR] ' + '='.repeat(70) + '\n\n');
+        console.error('[EXECUTOR] ' + '='.repeat(70) + '\n');
+        console.log('🔄 ' + '━'.repeat(68) + ' 🔄\n');
     }
 };
 

@@ -95,7 +95,7 @@ const tradeMonitor = async () => {
 };
 
 const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<string, UserActivityInterface[]>) => {
-    console.log(`\n\n[MONITOR] ${"═".repeat(60)}`);
+    console.log(`\n[MONITOR] ${"═".repeat(60)}`);
     console.log(`[MONITOR] 📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
     console.log(`[MONITOR] ⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
 
