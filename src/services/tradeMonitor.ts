@@ -111,29 +111,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             const firstTrade = trades[0];
             const lastTrade = trades[trades.length - 1];
 
-            // Get current tracked position BEFORE any of these trades
-            const currentPosition = currentTargetPositions.get(asset);
-            let previousSize = currentPosition?.size || 0;
-            previousSize = Math.round(previousSize * 1000000) / 1000000;
-
-            // Save initial position if this is first time seeing this asset
-            if (!currentPosition) {
-                const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
-                if (!existingInitial) {
-                    const startTimestamp = Math.floor(Date.now() / 1000);
-                    // Store the previousSize as initial (what they had before this trade batch)
-                    await new InitialTargetPosition({
-                        conditionId: firstTrade.conditionId,
-                        asset: asset,
-                        size: previousSize,
-                        outcomeIndex: firstTrade.outcomeIndex,
-                        startTimestamp: startTimestamp,
-                    }).save();
-                    console.log(`  📝 Saved initial position for new asset ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} shares`);
-                }
-            }
-
-            // Calculate net size change from all trades for this asset
+            // Calculate net size change from all trades for this asset FIRST
             let netSizeChange = 0;
             let totalBuySize = 0;
             let totalSellSize = 0;
@@ -149,11 +127,43 @@ const fetchActivitiesAndProcessTrades = async () => {
                 }
                 weightedPriceSum += trade.price * trade.size;
             }
+            netSizeChange = Math.round(netSizeChange * 1000000) / 1000000;
+
+            // Get current tracked position - this is our source of truth
+            // We CANNOT fetch from Positions API here because it may have newer data
+            // than what Activities API has returned, causing incorrect calculations
+            const currentPosition = currentTargetPositions.get(asset);
+            let previousSize = currentPosition?.size || 0;
+            previousSize = Math.round(previousSize * 1000000) / 1000000;
+
+            // Handle initial position tracking - check if we had this position in our tracking
+            const wasTracked = currentTargetPositions.has(asset);
+            
+            if (!wasTracked) {
+                const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
+                
+                // If no initial exists, or if initial was 0 (position was previously closed)
+                // and we now have shares, update the initial to reflect the pre-trade size
+                if (!existingInitial || (existingInitial.size === 0 && previousSize > 0)) {
+                    const startTimestamp = Math.floor(Date.now() / 1000);
+                    await InitialTargetPosition.findOneAndUpdate(
+                        { asset },
+                        {
+                            conditionId: firstTrade.conditionId,
+                            asset: asset,
+                            size: previousSize,
+                            outcomeIndex: firstTrade.outcomeIndex,
+                            startTimestamp: startTimestamp,
+                        },
+                        { upsert: true }
+                    );
+                    console.log(`  📝 Updated initial position for ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} shares`);
+                }
+            }
 
             const avgPrice = (totalBuySize + totalSellSize) > 0 ? weightedPriceSum / (totalBuySize + totalSellSize) : lastTrade.price;
             
-            // Round to avoid floating point precision issues (round to 6 decimals)
-            netSizeChange = Math.round(netSizeChange * 1000000) / 1000000;
+            // Calculate new size and round to avoid floating point issues
             let newSize = Math.max(0, previousSize + netSizeChange);
             newSize = Math.round(newSize * 1000000) / 1000000;
             
@@ -168,12 +178,21 @@ const fetchActivitiesAndProcessTrades = async () => {
             let changeType: 'new' | 'increase' | 'decrease' | 'closed';
             const tradeInfo = trades.length > 1 ? ` (${trades.length} trades combined)` : '';
             
-            if (!currentPosition && newSize > 0) {
+            // Check if this was a position we weren't tracking AND previous size was very small/zero
+            if (!wasTracked && previousSize < 0.01 && newSize > 0) {
                 changeType = 'new';
                 console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
             } else if (newSize < 0.01) {
                 changeType = 'closed';
                 console.log(`❌ Position closed: ${firstTrade.title} - ${firstTrade.outcome}${tradeInfo}`);
+                
+                // Reset initial position to 0 when fully closed
+                // This ensures if position reopens later, we track it from the reopening point
+                await InitialTargetPosition.findOneAndUpdate(
+                    { asset },
+                    { size: 0 },
+                    { upsert: true }
+                );
             } else if (delta > 0.0001) {
                 changeType = 'increase';
                 console.log(`🟢 Position increased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})${tradeInfo}`);
@@ -215,7 +234,9 @@ const fetchActivitiesAndProcessTrades = async () => {
             positionChangeEmitter.emitPositionChange(changeEvent);
 
             // Update our local tracking
-            if (newSize > 0.01) {
+            // Keep position in map even at small sizes to maintain tracking continuity
+            // Only remove when actually closed (rounded to 0)
+            if (newSize > 0) {
                 currentTargetPositions.set(asset, positionForEvent);
             } else {
                 currentTargetPositions.delete(asset);
