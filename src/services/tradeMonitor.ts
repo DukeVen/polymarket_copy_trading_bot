@@ -148,7 +148,16 @@ const fetchActivitiesAndProcessTrades = async () => {
             }
 
             const avgPrice = (totalBuySize + totalSellSize) > 0 ? weightedPriceSum / (totalBuySize + totalSellSize) : lastTrade.price;
-            const newSize = Math.max(0, previousSize + netSizeChange);
+            
+            // Round to avoid floating point precision issues (round to 6 decimals)
+            let newSize = Math.max(0, previousSize + netSizeChange);
+            newSize = Math.round(newSize * 1000000) / 1000000;
+            
+            // Treat very small positions as fully closed
+            if (newSize < 0.01) {
+                newSize = 0;
+            }
+            
             const delta = newSize - previousSize;
 
             // Determine change type and log
@@ -158,7 +167,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             if (!currentPosition && newSize > 0) {
                 changeType = 'new';
                 console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
-            } else if (newSize < 0.01) {
+            } else if (newSize === 0) {
                 changeType = 'closed';
                 console.log(`❌ Position closed: ${firstTrade.title} - ${firstTrade.outcome}${tradeInfo}`);
             } else if (delta > 0) {
@@ -202,7 +211,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             positionChangeEmitter.emitPositionChange(changeEvent);
 
             // Update our local tracking
-            if (newSize > 0.01) {
+            if (newSize > 0) {
                 currentTargetPositions.set(asset, positionForEvent);
             } else {
                 currentTargetPositions.delete(asset);

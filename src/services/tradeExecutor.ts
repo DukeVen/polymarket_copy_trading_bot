@@ -97,11 +97,15 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     // Calculate what the bot's target position should be
     // Bot should mirror the CHANGE from initial position
     const targetChange = currentTargetSize - initialTargetSize;
-    const botTargetSize = Math.max(0, targetChange); // Can't have negative positions
+    let botTargetSize = Math.max(0, targetChange); // Can't have negative positions
+    
+    // Round target size to avoid floating point precision issues
+    botTargetSize = Math.round(botTargetSize * 1000000) / 1000000;
+    if (botTargetSize < 0.01) botTargetSize = 0;
     
     // Calculate what trade bot needs to make
-    // Round to avoid floating point precision issues
-    const botSizeChange = Math.round((botTargetSize - botCurrentSize) * 1000000) / 1000000;
+    let botSizeChange = botTargetSize - botCurrentSize;
+    botSizeChange = Math.round(botSizeChange * 1000000) / 1000000;
     
     // Only log detailed analysis if there's a trade to make
     if (Math.abs(botSizeChange) >= 0.0001) {
@@ -175,7 +179,9 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         const botTrade = await calculateBotTrade(position);
 
         if (!botTrade.shouldTrade) {
-            return; // Skip silently if no action needed
+            console.log(`\n⏭️  Skipped: ${position.title} - ${position.outcome}`);
+            console.log(`   Reason: ${botTrade.reason}\n`);
+            return;
         }
 
         // Only log if there's a meaningful action to execute
