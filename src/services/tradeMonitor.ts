@@ -145,6 +145,9 @@ const fetchActivitiesAndProcessTrades = async () => {
             // Determine change type and log
             let changeType = determineChangeType(trades, firstTrade, previousSize, newSize, delta, wasTracked);
 
+
+            /*
+
             // TODO
             if (changeType === 'closed') {
                 // Reset initial position to 0 when fully closed
@@ -196,6 +199,8 @@ const fetchActivitiesAndProcessTrades = async () => {
                 changeType
             };
             positionChangeEmitter.emitPositionChange(changeEvent);
+
+            */
         }
 
     } catch (error) {
