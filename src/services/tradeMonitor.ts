@@ -23,8 +23,6 @@ if (!TARGET_ADDRESS) {
 const positionsRateLimiter = new APIRateLimiter('Positions', 150);
 const activitiesRateLimiter = new APIRateLimiter('Activities', 200);
 
-const UserPosition = getUserPositionModel(TARGET_ADDRESS);
-const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
 let isInitialized = false;
 let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // Track current positions
@@ -71,54 +69,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             lastProcessedActivityTimestamp = Math.max(lastProcessedActivityTimestamp, trade.timestamp);
         }
 
-        console.log(`\n${"═".repeat(60)}`);
-        console.log(`📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
-        console.log(`⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
-        console.log(`${"═".repeat(60)}`);
-
-        // Process each asset's trades as a single net change
-        // asset = assetId
-        // trades = array of trade activities for that asset
-        for (const [asset, trades] of tradesByAsset) {
-            const firstTrade = trades[0];
-            const netSizeChange = calcNetSizeChange(trades);
-            
-            console.log(`\n┌${"─".repeat(58)}┐`);
-            console.log(`│ Market: ${firstTrade.title}`);
-            console.log(`│ Outcome: ${firstTrade.outcome}`);
-            console.log(`└${"─".repeat(58)}┘`);
-            
-            // Log individual trades
-            if (trades.length > 1) {
-                console.log(`\n  Individual Trades (${trades.length} total):`);
-            }
-            for (const trade of trades) {
-                const emoji = trade.side === 'BUY' ? '🟢' : '🔴';
-                console.log(`  ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price}`);
-            }
-
-            // Determine verdict
-            let tradeVerdict = '';
-            let verdictEmoji = '';
-            if (netSizeChange > POSITION_CLOSE_THRESHOLD) {
-                tradeVerdict = 'BUY';
-                verdictEmoji = '🟢';
-            } else if (netSizeChange < -POSITION_CLOSE_THRESHOLD) {
-                tradeVerdict = 'SELL';
-                verdictEmoji = '🔴';
-            } else {
-                tradeVerdict = 'NO CHANGE';
-                verdictEmoji = '⚪';
-            }
-
-            console.log(`\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-            console.log(`  Net Position Change: ${netSizeChange > 0 ? '+' : ''}${netSizeChange} shares`);
-            console.log(`  ${verdictEmoji} VERDICT: ${tradeVerdict}`);
-            console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-        }
-
-        console.log(`✅ Processing Complete`);
-        console.log(`${"═".repeat(60)}\n`);
+        processTrades(newTrades, tradesByAsset);
 
 
     } catch (error) {
@@ -143,6 +94,80 @@ const tradeMonitor = async () => {
     }
 };
 
+const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<string, UserActivityInterface[]>) => {
+    console.log(`\n${"═".repeat(60)}`);
+    console.log(`📊 Processing ${newTrades.length} new trade ${newTrades.length === 1 ? 'activity' : 'activities'}`);
+    console.log(`⏰ Timestamp: ${moment.unix(lastProcessedActivityTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+
+    // Process each asset's trades as a single net change
+    // asset = assetId
+    // trades = array of trade activities for that asset
+    for (const [asset, trades] of tradesByAsset) {
+        const firstTrade = trades[0];
+        const netSizeChange = calcNetSizeChange(trades);
+
+        console.log(`${"─".repeat(58)}┐`);
+        console.log(`│ Market: ${firstTrade.title}`);
+        console.log(`│ Outcome: ${firstTrade.outcome}`);
+        console.log(`└${"─".repeat(58)}┘`);
+
+        // Log individual trades
+        if (trades.length > 1) {
+            console.log(`\n  Individual Trades (${trades.length} total):`);
+        }
+        for (const trade of trades) {
+            const emoji = trade.side === 'BUY' ? '🟢' : '🔴';
+            console.log(`  ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price}`);
+        }
+
+        // Determine verdict
+        let tradeVerdict = '';
+        let verdictEmoji = '';
+        let changeType: 'new' | 'increase' | 'decrease' | 'closed' | 'none' = 'none';
+        
+        if (netSizeChange > POSITION_CLOSE_THRESHOLD) {
+            tradeVerdict = 'BUY';
+            verdictEmoji = '🟢';
+            changeType = 'increase';
+        } else if (netSizeChange < -POSITION_CLOSE_THRESHOLD) {
+            tradeVerdict = 'SELL';
+            verdictEmoji = '🔴';
+            changeType = 'decrease';
+        } else {
+            tradeVerdict = 'NO CHANGE';
+            verdictEmoji = '⚪';
+            changeType = 'none';
+        }
+
+        console.log(`\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`  Net Position Change: ${netSizeChange > 0 ? '+' : ''}${netSizeChange} shares`);
+        console.log(`  ${verdictEmoji} VERDICT: ${tradeVerdict}`);
+        console.log(`  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+        // Emit position change event if there's a meaningful change
+        if (changeType !== 'none') {
+            const positionChangeEvent: PositionChangeEvent = {
+                asset: firstTrade.asset,
+                conditionId: firstTrade.conditionId,
+                outcomeIndex: firstTrade.outcomeIndex,
+                title: firstTrade.title,
+                outcome: firstTrade.outcome,
+                avgPrice: firstTrade.price,
+                curPrice: firstTrade.price,
+                changeType,
+                sizeChange: netSizeChange,
+            };
+
+            console.log(`  🔔 Emitting position change event to executor...\n`);
+            positionChangeEmitter.emitPositionChange(positionChangeEvent);
+        }
+    }
+
+    console.log(`✅ Processing Complete`);
+    console.log(`${"═".repeat(60)}\n`);
+
+}
+
 
 const calcNetSizeChange = (trades: UserActivityInterface[]): number => {
     let netSizeChange = 0;
@@ -159,54 +184,10 @@ const calcNetSizeChange = (trades: UserActivityInterface[]): number => {
     return netSizeChange;
 }
 
-const determineChangeType = (trades: UserActivityInterface[], firstTrade: UserActivityInterface, previousSize: number, newSize: number, delta: number): 'new' | 'increase' | 'decrease' | 'closed' | 'none' => {
-    let changeType: 'new' | 'increase' | 'decrease' | 'closed' | 'none' = 'none';
-    const tradeInfo = trades.length > 1 ? ` (${trades.length} trades combined)` : '';
 
-    // Check if this was a position we weren't tracking AND previous size was very small/zero
-    if (previousSize < POSITION_CLOSE_THRESHOLD && newSize > 0) {
-        changeType = 'new';
-        console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
-    } else if (newSize < POSITION_CLOSE_THRESHOLD) {
-        changeType = 'closed';
-        console.log(`❌ Position closed: ${firstTrade.title} - ${firstTrade.outcome}${tradeInfo}`);
-    } else if (delta > POSITION_CHANGE_THRESHOLD) {
-        changeType = 'increase';
-        console.log(`🟢 Position increased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})${tradeInfo}`);
-    } else if (delta < -POSITION_CHANGE_THRESHOLD) {
-        changeType = 'decrease';
-        console.log(`🔴 Position decreased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (${delta.toFixed(4)})${tradeInfo}`);
-    } else {
-        // No net change (e.g., bought 10 then sold 10)
-        // Skip emitting event
-    }
-
-    return changeType;
-}
 
 
 // Export init function for manual initialization
 export const initializeMonitor = init;
-
-// Export functions to get initial and current target positions
-export const getInitialTargetPosition = async (asset: string) => {
-    const initialPos = await InitialTargetPosition.findOne({ asset }).exec();
-    return initialPos ? initialPos.size : 0;
-};
-
-export const getCurrentTargetPosition = (asset: string): number => {
-    const position = currentTargetPositions.get(asset);
-    return position ? position.size : 0;
-};
-
-export const createNewTargetPosition = (position: UserPositionInterface, startTimestamp: number) => {
-    return new InitialTargetPosition({
-        conditionId: position.conditionId,
-        asset: position.asset,
-        size: position.size,
-        outcomeIndex: position.outcomeIndex,
-        startTimestamp: startTimestamp,
-    });
-}
 
 export default tradeMonitor;

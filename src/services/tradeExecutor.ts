@@ -1,20 +1,74 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { UserPositionInterface, BotPositionInterface } from '../interfaces/User';
 import { ENV } from '../config/env';
-import { getUserPositionModel, getBotPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
+import { getBotPositionModel } from '../models/userHistory';
 import getMyBalance from '../utils/getMyBalance';
-import { getInitialTargetPosition } from './tradeMonitor';
+import fetchPositions from '../utils/fetchPositions';
 import { positionChangeEmitter, PositionChangeEvent } from './positionChangeEmitter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 const DRY_RUN = ENV.DRY_RUN;
 
-const UserPosition = getUserPositionModel(TARGET_ADDRESS);
 const BotPosition = getBotPositionModel();
-const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
-// Execute a simple market order
+// Local position type (without mongoose _id)
+interface LocalBotPosition {
+    asset: string;
+    conditionId: string;
+    outcomeIndex: number;
+    size: number;
+    title: string;
+    outcome: string;
+    lastUpdated: number;
+}
+
+// Local position tracking (avoids race conditions from re-fetching)
+const botLocalPositions = new Map<string, LocalBotPosition>();
+let isInitialized = false;
+
+// Initialize bot positions from API (called once at startup)
+const initializeBotPositions = async () => {
+    if (!PROXY_WALLET) {
+        throw new Error('PROXY_WALLET is not defined');
+    }
+
+    console.log('🔄 Fetching bot\'s current positions from API...');
+    
+    try {
+        const positions = await fetchPositions(PROXY_WALLET);
+        
+        // Load into local map
+        botLocalPositions.clear();
+        for (const position of positions) {
+            if (position.size > 0.01) { // Only track meaningful positions
+                botLocalPositions.set(position.asset, {
+                    asset: position.asset,
+                    conditionId: position.conditionId,
+                    outcomeIndex: position.outcomeIndex,
+                    size: position.size,
+                    title: position.title,
+                    outcome: position.outcome,
+                    lastUpdated: Math.floor(Date.now() / 1000),
+                });
+            }
+        }
+        
+        console.log(`✅ Loaded ${botLocalPositions.size} existing bot positions`);
+        if (botLocalPositions.size > 0) {
+            console.log('📊 Current bot positions:');
+            for (const [asset, pos] of botLocalPositions) {
+                console.log(`   • ${pos.title} - ${pos.outcome}: ${pos.size} shares`);
+            }
+        }
+        console.log('');
+        
+        isInitialized = true;
+    } catch (error) {
+        console.error('❌ Failed to fetch bot positions:', error);
+        throw error;
+    }
+};
 const executeOrder = async (
     clobClient: ClobClient,
     tokenID: string,
@@ -43,13 +97,13 @@ const executeOrder = async (
     }
 };
 
-// Get bot's current position for a specific asset
-const getBotPosition = async (asset: string): Promise<number> => {
-    const position = await BotPosition.findOne({ asset }).exec();
+// Get bot's current position for a specific asset (from local map)
+const getBotPosition = (asset: string): number => {
+    const position = botLocalPositions.get(asset);
     return position ? position.size : 0;
 };
 
-// Update bot's position after a trade
+// Update bot's position after a trade (local map + database)
 const updateBotPosition = async (
     asset: string,
     conditionId: string,
@@ -57,18 +111,37 @@ const updateBotPosition = async (
     sizeChange: number,
     title: string,
     outcome: string
-) => {
-    const currentPosition = await BotPosition.findOne({ asset }).exec();
-    const currentSize = currentPosition ? currentPosition.size : 0;
-    const newSize = currentSize + sizeChange;
+): Promise<number> => {
+    const currentSize = getBotPosition(asset);
+    const newSize = Math.max(0, currentSize + sizeChange); // Can't go below 0
     
+    // Round to avoid floating point issues
+    const roundedNewSize = Math.round(newSize * 1000000) / 1000000;
+    
+    // Update local map
+    if (roundedNewSize < 0.01) {
+        // Position effectively closed
+        botLocalPositions.delete(asset);
+    } else {
+        botLocalPositions.set(asset, {
+            asset,
+            conditionId,
+            outcomeIndex,
+            size: roundedNewSize,
+            title,
+            outcome,
+            lastUpdated: Math.floor(Date.now() / 1000),
+        });
+    }
+    
+    // Also update database for persistence
     await BotPosition.findOneAndUpdate(
         { asset },
         {
             asset,
             conditionId,
             outcomeIndex,
-            size: newSize,
+            size: roundedNewSize,
             title,
             outcome,
             lastUpdated: Math.floor(Date.now() / 1000),
@@ -76,137 +149,129 @@ const updateBotPosition = async (
         { upsert: true, new: true }
     );
     
-    return newSize;
+    return roundedNewSize;
 };
 
-// Calculate what trade the bot should make based on position delta
-const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise<{
+// Calculate what trade the bot should make based on target's position change
+const calculateBotTrade = (
+    sizeChange: number,
+    asset: string,
+    title: string,
+    outcome: string
+): {
     shouldTrade: boolean;
     action: 'BUY' | 'SELL';
     size: number;
     reason: string;
-}> => {
-    const { asset, size: currentTargetSize, title, outcome, conditionId, outcomeIndex } = targetPosition;
-    
-    // Get initial target position (what they had when bot started)
-    let initialTargetSize = await getInitialTargetPosition(asset);
-
+} => {
     // Get bot's current position
-    const botCurrentSize = await getBotPosition(asset);
+    const botCurrentSize = getBotPosition(asset);
     
-    // Calculate what the bot's target position should be
-    // Bot should mirror the CHANGE from initial position
-    const targetChange = currentTargetSize - initialTargetSize;
-    let botTargetSize = Math.max(0, targetChange); // Can't have negative positions
+    // Round size change to avoid floating point issues
+    const roundedSizeChange = Math.round(sizeChange * 1000000) / 1000000;
     
-    // Round target size to avoid floating point precision issues
-    botTargetSize = Math.round(botTargetSize * 1000000) / 1000000;
-    if (botTargetSize < 0.01) botTargetSize = 0;
-    
-    // Calculate what trade bot needs to make
-    let botSizeChange = botTargetSize - botCurrentSize;
-    botSizeChange = Math.round(botSizeChange * 1000000) / 1000000;
-    
-    // Only log detailed analysis if there's a trade to make
-    if (Math.abs(botSizeChange) >= 0.0001) {
-        console.log(`\n📊 Position Analysis for ${title} - ${outcome}:`);
-        console.log(`   Target initial: ${initialTargetSize} shares`);
-        console.log(`   Target current: ${currentTargetSize} shares`);
-        console.log(`   Target change: ${targetChange > 0 ? '+' : ''}${targetChange}`);
-        console.log(`   Bot current: ${botCurrentSize} shares`);
-        console.log(`   Bot should have: ${botTargetSize} shares`);
-        console.log(`   Bot needs to: ${botSizeChange > 0 ? 'BUY' : 'SELL'} ${Math.abs(botSizeChange)} shares`);
-    }
-
-    console.log("initial target size: ", initialTargetSize);
-    console.log("current target size: ", currentTargetSize);
-    console.log("bot target size: ", botTargetSize);
-    console.log("bot current size: ", botCurrentSize);
-    
-    if (Math.abs(botSizeChange) < 0.0001) {
+    // No meaningful change
+    if (Math.abs(roundedSizeChange) < 0.01) {
         return {
             shouldTrade: false,
             action: 'BUY',
             size: 0,
-            reason: 'Bot position is already in sync'
+            reason: 'Position change too small to replicate'
         };
     }
     
-    if (botSizeChange > 0) {
+    // Target is buying - bot should buy the same amount
+    if (roundedSizeChange > 0) {
         return {
             shouldTrade: true,
             action: 'BUY',
-            size: botSizeChange,
-            reason: `Buying ${botSizeChange} shares to match target's position change`
+            size: roundedSizeChange,
+            reason: `Replicating target's BUY of ${roundedSizeChange} shares`
         };
-    } else {
-        // Selling - make sure we don't oversell
-        const maxSellSize = Math.min(Math.abs(botSizeChange), botCurrentSize);
-        
-        if (maxSellSize === 0) {
-            return {
-                shouldTrade: false,
-                action: 'SELL',
-                size: 0,
-                reason: 'Cannot sell - bot has no shares to sell'
-            };
-        }
-        
-        if (maxSellSize < Math.abs(botSizeChange)) {
-            return {
-                shouldTrade: true,
-                action: 'SELL',
-                size: maxSellSize,
-                reason: `⚠️ Selling ${maxSellSize} shares (wanted ${Math.abs(botSizeChange)} but only have ${botCurrentSize})`
-            };
-        }
-        
+    }
+    
+    // Target is selling - bot should sell the same amount (if it has enough)
+    const sellSize = Math.abs(roundedSizeChange);
+    
+    if (botCurrentSize === 0) {
+        return {
+            shouldTrade: false,
+            action: 'SELL',
+            size: 0,
+            reason: `⚠️ Cannot replicate SELL - bot has no position in this asset`
+        };
+    }
+    
+    if (botCurrentSize < sellSize) {
+        // Bot doesn't have enough shares - sell what it has
         return {
             shouldTrade: true,
             action: 'SELL',
-            size: maxSellSize,
-            reason: `Selling ${maxSellSize} shares to match target's position change`
+            size: botCurrentSize,
+            reason: `⚠️ Partial SELL - target sold ${sellSize} but bot only has ${botCurrentSize} shares (selling all)`
         };
     }
+    
+    // Bot has enough shares to replicate the sell
+    return {
+        shouldTrade: true,
+        action: 'SELL',
+        size: sellSize,
+        reason: `Replicating target's SELL of ${sellSize} shares`
+    };
 };
 
 // Process a single position change event
 const processPositionChange = async (clobClient: ClobClient, change: PositionChangeEvent) => {
     if (!PROXY_WALLET || !TARGET_ADDRESS) {
-        console.error('PROXY_WALLET or TARGET_ADDRESS is not defined');
+        console.error('❌ PROXY_WALLET or TARGET_ADDRESS is not defined');
         return;
     }
 
-    const { position, changeType } = change;
+    const { asset, conditionId, outcomeIndex, title, outcome, avgPrice, curPrice, changeType, sizeChange } = change;
 
     try {
         // Calculate what the bot should do
-        const botTrade = await calculateBotTrade(position);
+        const botTrade = calculateBotTrade(
+            sizeChange,
+            asset,
+            title,
+            outcome
+        );
 
         if (!botTrade.shouldTrade) {
-            console.log(`\n⏭️  Skipped: ${position.title} - ${position.outcome}`);
+            console.log(`\n⏭️  Skipped: ${title} - ${outcome}`);
             console.log(`   Reason: ${botTrade.reason}\n`);
             return;
         }
 
-        // Only log if there's a meaningful action to execute
-        console.log('\n' + '='.repeat(60));
-        console.log(`🔍 Processing position change (${changeType}):`);
-        console.log(`   ${position.title} - ${position.outcome}`);
-        console.log(`   Target: ${position.size} shares @ avg $${position.avgPrice}`);
-        console.log('='.repeat(60));
+        // Log the action we're about to take
+        console.log('\n' + '='.repeat(70));
+        console.log(`🎯 Target Trade Detected (${changeType.toUpperCase()}):`);
+        console.log(`   Market: ${title}`);
+        console.log(`   Outcome: ${outcome}`);
+        console.log(`   Target's Change: ${sizeChange > 0 ? '+' : ''}${sizeChange} shares`);
+        console.log('='.repeat(70));
 
-        console.log(`\n💡 Decision: ${botTrade.reason}`);
+        console.log(`\n💡 Bot Decision: ${botTrade.reason}`);
+        
+        // Get current bot position
+        const currentBotPosition = getBotPosition(asset);
+        console.log(`📊 Bot's Current Position: ${currentBotPosition} shares`);
 
-        // Check balance before trading (skip in dry run mode)
+        // Check balance before trading
         const my_balance = await getMyBalance(PROXY_WALLET);
-        console.log(`\n💰 Bot balance: $${my_balance.toFixed(2)} USDC`);
+        console.log(`💰 Bot Balance: $${my_balance.toFixed(2)} USDC`);
 
-        // Estimate cost using current market price
-        const estimatedCost = botTrade.size * position.curPrice;
+        // Estimate cost using market price
+        const estimatedCost = botTrade.size * (curPrice || avgPrice);
 
         if (!ENV.DRY_RUN && botTrade.action === 'BUY' && estimatedCost > my_balance) {
-            console.log(`⚠️ Insufficient balance! Need ~$${estimatedCost.toFixed(2)}, have $${my_balance.toFixed(2)}`);
+            console.log(`\n❌ INSUFFICIENT BALANCE!`);
+            console.log(`   Need: ~$${estimatedCost.toFixed(2)}`);
+            console.log(`   Have: $${my_balance.toFixed(2)}`);
+            console.log(`   Missing: $${(estimatedCost - my_balance).toFixed(2)}\n`);
+            console.log('='.repeat(70) + '\n');
             return;
         }
 
@@ -214,62 +279,80 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         let tradeSuccess = true;
 
         if (ENV.DRY_RUN) {
-            console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares`);
-            console.log(`   Market price: ~$${position.curPrice}`);
-            console.log(`   Estimated cost: $${estimatedCost.toFixed(2)}`);
+            console.log(`\n🔷 DRY RUN MODE`);
+            console.log(`   Action: ${botTrade.action}`);
+            console.log(`   Size: ${botTrade.size} shares`);
+            console.log(`   Est. Price: ~$${(curPrice || avgPrice)}`);
+            console.log(`   Est. Cost: $${estimatedCost.toFixed(2)}`);
+            
             if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
                 console.log(`   ⚠️ Note: Would need $${estimatedCost.toFixed(2)} but only have $${my_balance.toFixed(2)}`);
             }
         } else {
-            console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares`);
-            console.log(`   Market price: ~$${position.curPrice}`);
+            console.log(`\n🚀 Executing Trade:`);
+            console.log(`   Action: ${botTrade.action}`);
+            console.log(`   Size: ${botTrade.size} shares`);
+            console.log(`   Market Price: ~$${(curPrice || avgPrice)}`);
 
             const result = await executeOrder(
                 clobClient,
-                position.asset,
+                asset,
                 botTrade.action,
                 botTrade.size
             );
 
             tradeSuccess = result.success;
+            
             if (!result.success) {
-                console.log(`❌ Trade failed: ${result.error}`);
+                console.log(`\n❌ TRADE FAILED`);
+                console.log(`   Error: ${result.error}`);
+                console.log('='.repeat(70) + '\n');
+                return;
             }
         }
 
         // Update bot's position (for both dry run and live)
         if (tradeSuccess) {
-            const sizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
+            const actualSizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
             const newSize = await updateBotPosition(
-                position.asset,
-                position.conditionId,
-                position.outcomeIndex,
-                sizeChange,
-                position.title,
-                position.outcome
+                asset,
+                conditionId,
+                outcomeIndex,
+                actualSizeChange,
+                title,
+                outcome
             );
 
             if (ENV.DRY_RUN) {
-                console.log(`   Bot's simulated new position: ${newSize} shares`);
+                console.log(`\n✅ SIMULATED SUCCESSFULLY`);
             } else {
-                console.log(`✅ Trade executed successfully!`);
-                console.log(`   Bot's new position: ${newSize} shares`);
+                console.log(`\n✅ TRADE EXECUTED SUCCESSFULLY`);
             }
+            console.log(`   Bot's New Position: ${newSize} shares`);
+            console.log(`   Position Change: ${actualSizeChange > 0 ? '+' : ''}${actualSizeChange}`);
         }
 
-        console.log(''); // Empty line for spacing
+        console.log('='.repeat(70) + '\n');
 
     } catch (error) {
-        console.error('❌ Error processing position change:', error);
+        console.error('\n❌ ERROR PROCESSING POSITION CHANGE');
+        console.error(`   Market: ${title} - ${outcome}`);
+        console.error(`   Error: ${error}`);
+        console.error('='.repeat(70) + '\n');
     }
 };
 
 const tradeExecutor = async (clobClient: ClobClient) => {
+    // Initialize bot positions first
+    if (!isInitialized) {
+        await initializeBotPositions();
+    }
+
     if (ENV.DRY_RUN) {
-        console.log(`\n🔷🔷🔷 DRY RUN MODE ENABLED 🔷🔷🔷`);
+        console.log(`🔷🔷🔷 DRY RUN MODE ENABLED 🔷🔷🔷`);
         console.log(`Orders will be simulated but NOT actually executed\n`);
     }
-    console.log(`Trade Executor listening for position changes...\n`);
+    console.log(`🎧 Trade Executor listening for position changes...\n`);
 
     // Queue to process events sequentially
     const eventQueue: PositionChangeEvent[] = [];
@@ -295,5 +378,8 @@ const tradeExecutor = async (clobClient: ClobClient) => {
     // Keep the process alive (event-driven now, no polling loop)
     console.log(`✅ Event listener registered. Waiting for position changes...\n`);
 };
+
+// Export initialization function for external use
+export const initializeExecutor = initializeBotPositions;
 
 export default tradeExecutor;

@@ -1,7 +1,7 @@
 import connectDB from './config/db';
 import { ENV } from './config/env';
 import createClobClient from './utils/createClobClient';
-import tradeExecutor from './services/tradeExecutor';
+import tradeExecutor, { initializeExecutor } from './services/tradeExecutor';
 import tradeMonitor, { initializeMonitor } from './services/tradeMonitor';
 import test from './test/test';
 
@@ -19,23 +19,30 @@ export const main = async () => {
     }
     console.log(`${'='.repeat(50)}\n`);
     
-    console.log(`Target User Wallet addresss is: ${TARGET_ADDRESS}`);
-
-
-    console.log(`My Wallet addresss is: ${PROXY_WALLET}`);
-
-
+    console.log(`Target User Wallet address is: ${TARGET_ADDRESS}`);
+    console.log(`My Wallet address is: ${PROXY_WALLET}\n`);
 
     const clobClient = await createClobClient();
     
-    // Initialize monitor first (load trades and take snapshot)
-    console.log('Initializing trade monitor...');
+    // Initialize both services
+    console.log('🔧 Initializing services...\n');
+    
+    // Initialize trade monitor (sets up activity tracking)
+    console.log('📊 Initializing trade monitor...');
     initializeMonitor();
-    console.log('✅ Monitor initialized, starting executor...\n');
+    console.log('✅ Trade monitor initialized\n');
+    
+    // Initialize trade executor (loads bot positions from API once)
+    console.log('🤖 Initializing trade executor...');
+    await initializeExecutor();
+    console.log('✅ Trade executor initialized\n');
+    
+    console.log('🚀 Starting monitoring and execution...\n');
+    console.log('='.repeat(50) + '\n');
     
     // Run both monitor and executor in parallel (both have infinite loops)
     await Promise.all([
-        tradeMonitor(),      // Monitor target user's transactions
+        tradeMonitor(),           // Monitor target user's transactions
         tradeExecutor(clobClient)  // Execute transactions on your wallet
     ]);
 };

@@ -1,14 +1,16 @@
 import { EventEmitter } from 'events';
-import { UserPositionInterface } from '../interfaces/User';
 
-// Define the event payload interface
+// Define the event payload interface - only essential trade info needed
 export interface PositionChangeEvent {
     asset: string;
-    previousSize: number;
-    currentSize: number;
-    delta: number;
-    position: UserPositionInterface;
-    changeType: 'new' | 'increase' | 'decrease' | 'closed';
+    conditionId: string;
+    outcomeIndex: number;
+    title: string;
+    outcome: string;
+    avgPrice: number;
+    curPrice: number;
+    changeType: 'new' | 'increase' | 'decrease' | 'closed' | 'none';
+    sizeChange: number; // Net change in position size (positive = buy, negative = sell)
 }
 
 // Create a singleton event emitter for position changes
