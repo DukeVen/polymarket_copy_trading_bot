@@ -113,13 +113,15 @@ const fetchActivitiesAndProcessTrades = async () => {
 
             // Get current tracked position BEFORE any of these trades
             const currentPosition = currentTargetPositions.get(asset);
-            const previousSize = currentPosition?.size || 0;
+            let previousSize = currentPosition?.size || 0;
+            previousSize = Math.round(previousSize * 1000000) / 1000000;
 
             // Save initial position if this is first time seeing this asset
             if (!currentPosition) {
                 const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
                 if (!existingInitial) {
                     const startTimestamp = Math.floor(Date.now() / 1000);
+                    // Store the previousSize as initial (what they had before this trade batch)
                     await new InitialTargetPosition({
                         conditionId: firstTrade.conditionId,
                         asset: asset,
@@ -127,6 +129,7 @@ const fetchActivitiesAndProcessTrades = async () => {
                         outcomeIndex: firstTrade.outcomeIndex,
                         startTimestamp: startTimestamp,
                     }).save();
+                    console.log(`  📝 Saved initial position for new asset ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} shares`);
                 }
             }
 
@@ -150,6 +153,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             const avgPrice = (totalBuySize + totalSellSize) > 0 ? weightedPriceSum / (totalBuySize + totalSellSize) : lastTrade.price;
             
             // Round to avoid floating point precision issues (round to 6 decimals)
+            netSizeChange = Math.round(netSizeChange * 1000000) / 1000000;
             let newSize = Math.max(0, previousSize + netSizeChange);
             newSize = Math.round(newSize * 1000000) / 1000000;
             
@@ -158,7 +162,7 @@ const fetchActivitiesAndProcessTrades = async () => {
                 newSize = 0;
             }
             
-            const delta = newSize - previousSize;
+            const delta = Math.round((newSize - previousSize) * 1000000) / 1000000;
 
             // Determine change type and log
             let changeType: 'new' | 'increase' | 'decrease' | 'closed';
@@ -167,13 +171,13 @@ const fetchActivitiesAndProcessTrades = async () => {
             if (!currentPosition && newSize > 0) {
                 changeType = 'new';
                 console.log(`🆕 New position opened: ${firstTrade.title} - ${firstTrade.outcome}: ${newSize} shares${tradeInfo}`);
-            } else if (newSize === 0) {
+            } else if (newSize < 0.01) {
                 changeType = 'closed';
                 console.log(`❌ Position closed: ${firstTrade.title} - ${firstTrade.outcome}${tradeInfo}`);
-            } else if (delta > 0) {
+            } else if (delta > 0.0001) {
                 changeType = 'increase';
                 console.log(`🟢 Position increased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (+${delta.toFixed(4)})${tradeInfo}`);
-            } else if (delta < 0) {
+            } else if (delta < -0.0001) {
                 changeType = 'decrease';
                 console.log(`🔴 Position decreased: ${firstTrade.title} - ${firstTrade.outcome}: ${previousSize} → ${newSize} (${delta.toFixed(4)})${tradeInfo}`);
             } else {
@@ -211,7 +215,7 @@ const fetchActivitiesAndProcessTrades = async () => {
             positionChangeEmitter.emitPositionChange(changeEvent);
 
             // Update our local tracking
-            if (newSize > 0) {
+            if (newSize > 0.01) {
                 currentTargetPositions.set(asset, positionForEvent);
             } else {
                 currentTargetPositions.delete(asset);
