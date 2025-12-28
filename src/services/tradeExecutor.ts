@@ -6,6 +6,7 @@ import fetchData from '../utils/fetchData';
 import spinner from '../utils/spinner';
 import getMyBalance from '../utils/getMyBalance';
 import { getInitialTargetPosition } from './tradeMonitor';
+import APIRateLimiter from '../utils/apiRateLimiter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const RETRY_LIMIT = ENV.RETRY_LIMIT;
@@ -19,9 +20,14 @@ const UserActivity = getUserActivityModel(TARGET_ADDRESS);
 const BotPosition = getBotPositionModel();
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
+// Initialize rate limiters
+const positionsRateLimiter = new APIRateLimiter('Positions', 150);
+const tradesRateLimiter = new APIRateLimiter('Trades/Activities', 200);
+
 // Fetch all target positions from API
 const fetchTargetPositions = async (): Promise<UserPositionInterface[]> => {
     try {
+        positionsRateLimiter.track();
         const positions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
@@ -88,6 +94,8 @@ const executeOrder = async (
 };
 
 const readTargetTrade = async () => {
+    // Note: This reads from MongoDB, not the Polymarket API
+    // The tradeMonitor service handles API calls for activities/trades
     target_activities = (
         await UserActivity.find({
             $and: [{ type: 'TRADE' }, { bot: false }, { botExcutedTime: { $lt: RETRY_LIMIT } }],
@@ -367,7 +375,7 @@ const tradeExcutor = async (clobClient: ClobClient) => {
         }
         
         // Add delay between checks
-        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000 + 500));
+        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
     }
 };
 

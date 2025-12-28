@@ -3,6 +3,7 @@ import { ENV } from '../config/env';
 import { UserActivityInterface, UserPositionInterface } from '../interfaces/User';
 import { getUserActivityModel, getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
+import APIRateLimiter from '../utils/apiRateLimiter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const TOO_OLD_TIMESTAMP = ENV.TOO_OLD_TIMESTAMP;
@@ -12,6 +13,10 @@ if (!TARGET_ADDRESS) {
     throw new Error('TARGET_ADDRESS is not defined');
     console.log('TARGET_ADDRESS is not defined');
 }
+
+// Initialize rate limiters
+const positionsRateLimiter = new APIRateLimiter('Positions', 150);
+const activitiesRateLimiter = new APIRateLimiter('Activities', 200);
 
 const UserActivity = getUserActivityModel(TARGET_ADDRESS);
 const UserPosition = getUserPositionModel(TARGET_ADDRESS);
@@ -31,6 +36,7 @@ const init = async () => {
         console.log('📸 Taking snapshot of target\'s initial positions...');
         
         // Fetch and save target's current positions as initial state
+        positionsRateLimiter.track();
         const userPositions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
@@ -65,11 +71,13 @@ const init = async () => {
 const fetchTradeData = async () => {
     try {
         // Fetch target activities from Polymarket API
+        activitiesRateLimiter.track();
         const userActivities: UserActivityInterface[] = await fetchData(
             `https://data-api.polymarket.com/activity?user=${TARGET_ADDRESS}`
         );
 
         // Fetch target positions
+        positionsRateLimiter.track();
         const userPositions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
