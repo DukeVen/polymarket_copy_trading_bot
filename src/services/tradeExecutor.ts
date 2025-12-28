@@ -106,6 +106,9 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     // Calculate what trade bot needs to make
     let botSizeChange = botTargetSize - botCurrentSize;
     botSizeChange = Math.round(botSizeChange * 1000000) / 1000000;
+
+    console.log("initial target size: ", initialTargetSize);
+    console.log("current target size: ", currentTargetSize);
     
     // Only log detailed analysis if there's a trade to make
     if (Math.abs(botSizeChange) >= 0.0001) {
