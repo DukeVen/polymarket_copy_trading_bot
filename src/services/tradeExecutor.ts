@@ -90,6 +90,8 @@ const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise
     
     // Get initial target position (what they had when bot started)
     let initialTargetSize = await getInitialTargetPosition(asset);
+
+    console.log("initialTargetSize", initialTargetSize);
     
     // If no initial position exists for this asset, it's a NEW position opened after bot started
     // Set initial to 0 so bot will copy the full size
