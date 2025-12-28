@@ -1,12 +1,11 @@
 import moment from 'moment';
 import { ENV } from '../config/env';
-import { UserActivityInterface, UserPositionInterface } from '../interfaces/User';
-import { getUserActivityModel, getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
+import { UserPositionInterface } from '../interfaces/User';
+import { getUserPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
 import APIRateLimiter from '../utils/apiRateLimiter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
-const TOO_OLD_TIMESTAMP = ENV.TOO_OLD_TIMESTAMP;
 const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
 
 if (!TARGET_ADDRESS) {
@@ -14,21 +13,17 @@ if (!TARGET_ADDRESS) {
     console.log('TARGET_ADDRESS is not defined');
 }
 
-// Initialize rate limiters
+// Initialize rate limiter (only positions API now)
 const positionsRateLimiter = new APIRateLimiter('Positions', 150);
-const activitiesRateLimiter = new APIRateLimiter('Activities', 200);
 
-const UserActivity = getUserActivityModel(TARGET_ADDRESS);
 const UserPosition = getUserPositionModel(TARGET_ADDRESS);
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
-let target_activities: UserActivityInterface[] = [];
 let isInitialized = false;
-let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // key: asset (token ID)
+let previousTargetPositions: Map<string, UserPositionInterface> = new Map(); // Previous poll snapshot
+let currentTargetPositions: Map<string, UserPositionInterface> = new Map(); // Current positions
 
 const init = async () => {
-    target_activities = (await UserActivity.find().sort({ timestamp: 1 }).exec()).map((trade) => trade as UserActivityInterface);
-    
     // Check if we've already saved initial positions
     const existingInitialPositions = await InitialTargetPosition.find().exec();
     
@@ -53,88 +48,72 @@ const init = async () => {
             });
             await initialPosition.save();
             console.log(`  ✓ Saved initial position: ${position.title} - ${position.outcome}: ${position.size} shares`);
+            
+            // Store in current positions map
+            currentTargetPositions.set(position.asset, position);
         }
         
-        console.log(`✅ Snapshot complete. Bot will only copy NEW trades from now on.\n`);
+        console.log(`✅ Snapshot complete. Bot will only copy NEW position changes from now on.\n`);
     } else {
         console.log('✅ Initial positions already saved. Resuming from previous state.\n');
+        
+        // Load current positions
+        await fetchPositionData();
     }
     
-    // Fetch initial trade data before executor starts
-    console.log('Fetching latest trades from API...');
-    await fetchTradeData();
-    console.log('✅ Initial fetch complete.\n');
+    // Copy current to previous for first comparison
+    previousTargetPositions = new Map(currentTargetPositions);
     
     isInitialized = true;
 };
 
-const fetchTradeData = async () => {
+const fetchPositionData = async () => {
     try {
-        // Fetch target activities from Polymarket API
-        activitiesRateLimiter.track();
-        const userActivities: UserActivityInterface[] = await fetchData(
-            `https://data-api.polymarket.com/activity?user=${TARGET_ADDRESS}`
-        );
-
-        // Fetch target positions
+        // Fetch target positions from Polymarket API
         positionsRateLimiter.track();
         const userPositions: UserPositionInterface[] = await fetchData(
             `https://data-api.polymarket.com/positions?user=${TARGET_ADDRESS}`
         );
 
-        // Sort activities by timestamp (oldest first) for consistent processing
-        const sortedActivities = userActivities.sort((a, b) => a.timestamp - b.timestamp);
+        // Store previous positions before updating
+        previousTargetPositions = new Map(currentTargetPositions);
 
-        // Filter and process new trades
-        for (const activity of sortedActivities) {
-            // Skip if not a trade
-            if (activity.type !== 'TRADE') continue;
-
-            // Skip if trade is too old // TODO ADJUST?
-            const hoursDiff = moment().diff(moment.unix(activity.timestamp), 'hours');
-            if (hoursDiff > TOO_OLD_TIMESTAMP) continue;
-
-            // Check if trade already exists in database
-            const existingTrade = target_activities.find(
-                (trade) => trade.transactionHash === activity.transactionHash
-            );
-
-            if (!existingTrade) {
-                // Save new trade to database
-                const newTrade = new UserActivity({
-                    ...activity,
-                    bot: false,
-                    botExcutedTime: 0,
-                });
-                await newTrade.save();
-                target_activities.push(newTrade as UserActivityInterface);
-                console.log('🆕 New trade detected:', {
-                    title: activity.title,
-                    side: activity.side,
-                    size: activity.size,
-                    price: activity.price,
-                    timestamp: moment.unix(activity.timestamp).format('YYYY-MM-DD HH:mm:ss'),
-                });
-            }
-        }
-
-        // Update positions in database
+        // Update positions in database and current map
         for (const position of userPositions) {
             await UserPosition.findOneAndUpdate(
-                { conditionId: position.conditionId },
+                { asset: position.asset },
                 { ...position },
                 { upsert: true, new: true }
             );
-            
-            if (!currentTargetPositions.has(position.asset)) {
-                console.log(`🔄 Added new position: ${position.title} - ${position.outcome}: ${position.size} shares`);
+
+            const previousSize = previousTargetPositions.get(position.asset)?.size || 0;
+            const currentSize = position.size;
+            const delta = currentSize - previousSize;
+
+            // Log position changes
+            if (Math.abs(delta) > 0.0001) {
+                if (!previousTargetPositions.has(position.asset)) {
+                    console.log(`🆕 New position opened: ${position.title} - ${position.outcome}: ${currentSize} shares`);
+                } else if (delta > 0) {
+                    console.log(`🟢 Position increased: ${position.title} - ${position.outcome}: ${previousSize} → ${currentSize} (+${delta.toFixed(4)})`);
+                } else {
+                    console.log(`🔴 Position decreased: ${position.title} - ${position.outcome}: ${previousSize} → ${currentSize} (${delta.toFixed(4)})`);
+                }
             }
 
-            // Update current positions map (keyed by asset/token ID)
+            // Update current positions map
             currentTargetPositions.set(position.asset, position);
         }
+
+        // Detect closed positions
+        for (const [asset, previousPosition] of previousTargetPositions.entries()) {
+            if (!userPositions.find(p => p.asset === asset)) {
+                console.log(`❌ Position closed: ${previousPosition.title} - ${previousPosition.outcome}`);
+                currentTargetPositions.delete(asset);
+            }
+        }
     } catch (error) {
-        console.error('Error fetching trade data:', error);
+        console.error('Error fetching position data:', error);
     }
 };
 
@@ -145,12 +124,13 @@ const tradeMonitor = async () => {
         await init();
     }
     
-    console.log('Trade Monitor is running every', FETCH_INTERVAL, 'seconds');
+    console.log('Position Monitor is running every', FETCH_INTERVAL, 'seconds');
+    console.log('Tracking position changes via Positions API only\n');
 
     // Start monitoring loop
     while (true) {
-        await fetchTradeData();     // Fetch all target activities
-        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));     //Fetch target activities every second
+        await fetchPositionData();
+        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
     }
 };
 

@@ -1,7 +1,7 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
-import { UserActivityInterface, UserPositionInterface, BotPositionInterface } from '../interfaces/User';
+import { UserPositionInterface, BotPositionInterface } from '../interfaces/User';
 import { ENV } from '../config/env';
-import { getUserActivityModel, getBotPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
+import { getUserPositionModel, getBotPositionModel, getInitialTargetPositionModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
 import spinner from '../utils/spinner';
 import getMyBalance from '../utils/getMyBalance';
@@ -9,20 +9,16 @@ import { getInitialTargetPosition } from './tradeMonitor';
 import APIRateLimiter from '../utils/apiRateLimiter';
 
 const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
-const RETRY_LIMIT = ENV.RETRY_LIMIT;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 const FETCH_INTERVAL = ENV.FETCH_INTERVAL;
 const DRY_RUN = ENV.DRY_RUN;
 
-let target_activities: UserActivityInterface[] = [];
-
-const UserActivity = getUserActivityModel(TARGET_ADDRESS);
+const UserPosition = getUserPositionModel(TARGET_ADDRESS);
 const BotPosition = getBotPositionModel();
 const InitialTargetPosition = getInitialTargetPositionModel(TARGET_ADDRESS);
 
-// Initialize rate limiters
+// Initialize rate limiter
 const positionsRateLimiter = new APIRateLimiter('Positions', 150);
-const tradesRateLimiter = new APIRateLimiter('Trades/Activities', 200);
 
 // Fetch all target positions from API
 const fetchTargetPositions = async (): Promise<UserPositionInterface[]> => {
@@ -39,36 +35,12 @@ const fetchTargetPositions = async (): Promise<UserPositionInterface[]> => {
     }
 };
 
-// Get target position for a specific asset
-const getFreshTargetPosition = async (asset: string, positions?: UserPositionInterface[]): Promise<number> => {
-    try {
-        // If positions data is provided, use it instead of fetching from API
-        if (positions) {
-            const position = positions.find(p => p.asset === asset);
-            const size = position ? position.size : 0;
-            return size;
-        }
-        
-        console.log(`   [Fetching API...]`);
-        const fetchedPositions = await fetchTargetPositions();
-        
-        const position = fetchedPositions.find(p => p.asset === asset);
-        const size = position ? position.size : 0;
-        console.log(`   [Fresh API] Asset ${asset.substring(0, 10)}... current: ${size} shares`);
-        return size;
-    } catch (error) {
-        console.error('⚠️ Error getting target position:', error);
-        return 0;
-    }
-};
-
 // Execute a simple market order
 const executeOrder = async (
     clobClient: ClobClient,
     tokenID: string,
     side: 'BUY' | 'SELL',
-    size: number,
-    targetPrice: number
+    size: number
 ): Promise<{ success: boolean; error?: string }> => {
     try {
         const orderSide = side === 'BUY' ? Side.BUY : Side.SELL;
@@ -77,7 +49,6 @@ const executeOrder = async (
             side: orderSide,
             tokenID: tokenID,
             amount: size,
-            price: targetPrice,
         };
         
         const signedOrder = await clobClient.createMarketOrder(order_args);
@@ -91,18 +62,6 @@ const executeOrder = async (
     } catch (error) {
         return { success: false, error: String(error) };
     }
-};
-
-const readTargetTrade = async () => {
-    // Note: This reads from MongoDB, not the Polymarket API
-    // The tradeMonitor service handles API calls for activities/trades
-    target_activities = (
-        await UserActivity.find({
-            $and: [{ type: 'TRADE' }, { bot: false }, { botExcutedTime: { $lt: RETRY_LIMIT } }],
-        })
-        .sort({ timestamp: 1 })  // Sort by timestamp ascending (oldest first)
-        .exec()
-    ).map((trade) => trade as UserActivityInterface);
 };
 
 // Get bot's current position for a specific asset
@@ -141,36 +100,34 @@ const updateBotPosition = async (
     return newSize;
 };
 
-// Calculate what trade the bot should make based on target's trade
-const calculateBotTrade = async (trade: UserActivityInterface, positions?: UserPositionInterface[]): Promise<{
+// Calculate what trade the bot should make based on position delta
+const calculateBotTrade = async (targetPosition: UserPositionInterface): Promise<{
     shouldTrade: boolean;
     action: 'BUY' | 'SELL';
     size: number;
     reason: string;
 }> => {
-    const { asset, side, size: tradeSize } = trade;
+    const { asset, size: currentTargetSize, title, outcome, conditionId, outcomeIndex } = targetPosition;
     
     // Get initial target position (what they had when bot started)
     let initialTargetSize = await getInitialTargetPosition(asset);
     
-    // If no initial position exists for this asset, save it as 0 (new position after bot started)
+    // If no initial position exists for this asset, save it as current size (new position after bot started)
     if (initialTargetSize === 0) {
         const existingInitial = await InitialTargetPosition.findOne({ asset }).exec();
         if (!existingInitial) {
             const startTimestamp = Math.floor(Date.now() / 1000);
             await new InitialTargetPosition({
-                conditionId: trade.conditionId,
+                conditionId: conditionId,
                 asset: asset,
-                size: 0,
-                outcomeIndex: trade.outcomeIndex,
+                size: currentTargetSize, // Set initial to current (don't copy existing positions)
+                outcomeIndex: outcomeIndex,
                 startTimestamp: startTimestamp,
             }).save();
-            console.log(`   📌 New asset detected, setting initial position to 0`);
+            console.log(`   📌 New asset detected, setting initial position to ${currentTargetSize}`);
+            initialTargetSize = currentTargetSize;
         }
     }
-    
-    // Get FRESH current target position (use provided positions data if available)
-    const currentTargetSize = await getFreshTargetPosition(asset, positions);
     
     // Get bot's current position
     const botCurrentSize = await getBotPosition(asset);
@@ -184,7 +141,7 @@ const calculateBotTrade = async (trade: UserActivityInterface, positions?: UserP
     // Round to avoid floating point precision issues
     const botSizeChange = Math.round((botTargetSize - botCurrentSize) * 1000000) / 1000000;
     
-    console.log(`\n📊 Position Analysis for ${trade.title} - ${trade.outcome}:`);
+    console.log(`\n📊 Position Analysis for ${title} - ${outcome}:`);
     console.log(`   Target initial: ${initialTargetSize} shares`);
     console.log(`   Target current: ${currentTargetSize} shares`);
     console.log(`   Target change: ${targetChange > 0 ? '+' : ''}${targetChange}`);
@@ -239,40 +196,36 @@ const calculateBotTrade = async (trade: UserActivityInterface, positions?: UserP
     }
 };
 
-const doTrading = async (clobClient: ClobClient) => {
+const processPositions = async (clobClient: ClobClient) => {
     if (!PROXY_WALLET || !TARGET_ADDRESS) {
         console.error('PROXY_WALLET or TARGET_ADDRESS is not defined');
         return;
     }
     
-    // Fetch target's current positions ONCE before processing the batch
-    // This avoids rate limiting since these are historical trades already reflected in the API
+    // Fetch target's current positions
     console.log('\n📡 Fetching target\'s current positions...');
     const targetPositions = await fetchTargetPositions();
     console.log(`✅ Fetched ${targetPositions.length} positions from API\n`);
     
-    for (const trade of target_activities) {
+    if (targetPositions.length === 0) {
+        return; // Nothing to process
+    }
+    
+    for (const position of targetPositions) {
         console.log('\n' + '='.repeat(60));
-        console.log(`🔍 Processing target's trade:`);
-        console.log(`   ${trade.title} - ${trade.outcome}`);
-        console.log(`   Target ${trade.side}: ${trade.size} shares @ $${trade.price}`);
+        console.log(`🔍 Processing target's position:`);
+        console.log(`   ${position.title} - ${position.outcome}`);
+        console.log(`   Target: ${position.size} shares @ avg $${position.avgPrice}`);
         console.log('='.repeat(60));
         
         try {
-            // Calculate what the bot should do (pass positions data to avoid API calls)
-            const botTrade = await calculateBotTrade(trade, targetPositions);
+            // Calculate what the bot should do
+            const botTrade = await calculateBotTrade(position);
             
             console.log(`\n💡 Decision: ${botTrade.reason}`);
             
             if (!botTrade.shouldTrade) {
-                console.log('⏭️  Skipping this trade.\n');
-                
-                // Mark as processed even though we didn't trade
-                await UserActivity.findOneAndUpdate(
-                    { transactionHash: trade.transactionHash },
-                    { bot: true, botExcutedTime: Date.now() }
-                );
-                
+                console.log('⏭️  Skipping - no action needed.\n');
                 continue;
             }
             
@@ -280,17 +233,11 @@ const doTrading = async (clobClient: ClobClient) => {
             const my_balance = await getMyBalance(PROXY_WALLET);
             console.log(`\n💰 Bot balance: $${my_balance.toFixed(2)} USDC`);
             
-            const estimatedCost = botTrade.size * trade.price;
+            // Estimate cost using current market price
+            const estimatedCost = botTrade.size * position.curPrice;
             
             if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
                 console.log(`⚠️ Insufficient balance! Need ~$${estimatedCost.toFixed(2)}, have $${my_balance.toFixed(2)}`);
-                
-                // Increment retry counter
-                await UserActivity.findOneAndUpdate(
-                    { transactionHash: trade.transactionHash },
-                    { $inc: { botExcutedTime: 1 } }
-                );
-                
                 continue;
             }
             
@@ -298,17 +245,18 @@ const doTrading = async (clobClient: ClobClient) => {
             let tradeSuccess = true;
             
             if (ENV.DRY_RUN) {
-                console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares @ ~$${trade.price}`);
+                console.log(`\n🔷 DRY RUN: Would ${botTrade.action} ${botTrade.size} shares`);
+                console.log(`   Market price: ~$${position.curPrice}`);
                 console.log(`   Estimated cost: $${estimatedCost.toFixed(2)}`);
             } else {
-                console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares @ ~$${trade.price}`);
+                console.log(`\n🚀 Executing ${botTrade.action}: ${botTrade.size} shares`);
+                console.log(`   Market price: ~$${position.curPrice}`);
                 
                 const result = await executeOrder(
                     clobClient,
-                    trade.asset,
+                    position.asset,
                     botTrade.action,
-                    botTrade.size,
-                    trade.price
+                    botTrade.size
                 );
                 
                 tradeSuccess = result.success;
@@ -321,12 +269,12 @@ const doTrading = async (clobClient: ClobClient) => {
             if (tradeSuccess) {
                 const sizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
                 const newSize = await updateBotPosition(
-                    trade.asset,
-                    trade.conditionId,
-                    trade.outcomeIndex,
+                    position.asset,
+                    position.conditionId,
+                    position.outcomeIndex,
                     sizeChange,
-                    trade.title,
-                    trade.outcome
+                    position.title,
+                    position.outcome
                 );
                 
                 if (ENV.DRY_RUN) {
@@ -337,46 +285,29 @@ const doTrading = async (clobClient: ClobClient) => {
                 }
             }
             
-            // Mark as processed
-            await UserActivity.findOneAndUpdate(
-                { transactionHash: trade.transactionHash },
-                { bot: true, botExcutedTime: Date.now() }
-            );
-            
         } catch (error) {
-            console.error('❌ Error processing trade:', error);
-            
-            // Increment retry counter
-            await UserActivity.findOneAndUpdate(
-                { transactionHash: trade.transactionHash },
-                { $inc: { botExcutedTime: 1 } }
-            );
+            console.error('❌ Error processing position:', error);
         }
         
         console.log(''); // Empty line for spacing
     }
 };
 
-const tradeExcutor = async (clobClient: ClobClient) => {
+const tradeExecutor = async (clobClient: ClobClient) => {
     if (ENV.DRY_RUN) {
         console.log(`\n🔷🔷🔷 DRY RUN MODE ENABLED 🔷🔷🔷`);
         console.log(`Orders will be simulated but NOT actually executed\n`);
     }
-    console.log(`Executing Copy Trading\n`);
+    console.log(`Executing Position-Based Copy Trading\n`);
 
     while (true) {
-        await readTargetTrade();
-        if (target_activities.length > 0) {
-            console.log('💥 New transactions found 💥:', target_activities.length);
-            spinner.stop();
-            await doTrading(clobClient);
-        } else {
-            spinner.start('Waiting for new transactions');
-        }
+        await processPositions(clobClient);
+        spinner.start('Monitoring positions');
         
         // Add delay between checks
         await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
+        spinner.stop();
     }
 };
 
-export default tradeExcutor;
+export default tradeExecutor;
