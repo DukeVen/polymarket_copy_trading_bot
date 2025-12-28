@@ -84,7 +84,7 @@ const fetchActivitiesAndProcessTrades = async () => {
 
             // Log trades
             for (const trade of trades) {
-                console.log(`[Trade] ${moment.unix(trade.timestamp).format('YYYY-MM-DD HH:mm:ss')} | ${trade.side} | ${trade.size} shares of ${trade.title} - ${trade.outcome} at $${trade.price} (Tx: ${trade.transactionHash})`);
+                console.log(`[Trade] ${moment.unix(trade.timestamp).format('YYYY-MM-DD HH:mm:ss')} \n${trade.side} \n${trade.size} shares of ${trade.title} - ${trade.outcome} at $${trade.price} \n(Tx: ${trade.transactionHash})`);
             }
 
             console.log(`Net size change for ${firstTrade.title} - ${firstTrade.outcome}: ${netSizeChange} shares`);
@@ -98,10 +98,10 @@ const fetchActivitiesAndProcessTrades = async () => {
                 tradeVerdict = 'NO CHANGE (buy and sell)';
             }
 
-            console.log(`TRADE VERDICT: ${tradeVerdict}`);
+            console.log(`\nTRADE VERDICT: ${tradeVerdict}\n`);
         }
 
-        console.log(`${"=".repeat(20)}END OF PROCESSING${"=".repeat(20)}\n`);
+        console.log(`${"=".repeat(15)} END OF PROCESSING ${"=".repeat(15)}\n`);
 
 
     } catch (error) {
