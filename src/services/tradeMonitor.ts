@@ -115,10 +115,12 @@ const fetchTradeData = async () => {
                 { upsert: true, new: true }
             );
             
+            if (!currentTargetPositions.has(position.asset)) {
+                console.log(`🔄 Added new position: ${position.title} - ${position.outcome}: ${position.size} shares`);
+            }
+
             // Update current positions map (keyed by asset/token ID)
             currentTargetPositions.set(position.asset, position);
-
-            console.log("TEMP: Updated position:");
         }
     } catch (error) {
         console.error('Error fetching trade data:', error);
