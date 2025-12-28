@@ -189,8 +189,15 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
     const { position, changeType } = change;
 
     try {
+
+        console.log("============ pre =======");
+
         // Calculate what the bot should do
         const botTrade = await calculateBotTrade(position);
+
+        if (changeType === 'new') {
+            console.log("DEBUG, shouldTrade = ", botTrade.shouldTrade);
+        }
 
         if (!botTrade.shouldTrade) {
             return; // Skip silently if no action needed
