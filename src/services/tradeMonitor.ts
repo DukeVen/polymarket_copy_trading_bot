@@ -48,7 +48,6 @@ const fetchActivitiesAndProcessTrades = async () => {
         );
 
         if (activities.length === 0) {
-            spinner.stop();
             return;
         }
 
@@ -59,7 +58,6 @@ const fetchActivitiesAndProcessTrades = async () => {
             .sort((a, b) => a.timestamp - b.timestamp); // Process oldest first
 
         if (newTrades.length === 0) {
-            spinner.stop();
             return;
         }
 
