@@ -30,6 +30,7 @@ export const ENV = {
     CLOB_API_KEY: process.env.CLOB_API_KEY as string,
     CLOB_API_SECRET: process.env.CLOB_SECRET as string,
     CLOB_API_PASSPHRASE: process.env.CLOB_PASSPHRASE as string,
+    CLOB_API_ADDRESS: process.env.CLOB_API_ADDRESS as string,
     CLOB_HTTP_URL: process.env.CLOB_HTTP_URL as string,
     CLOB_WS_URL: process.env.CLOB_WS_URL as string,
     FETCH_INTERVAL: parseInt(process.env.FETCH_INTERVAL || '1', 10),

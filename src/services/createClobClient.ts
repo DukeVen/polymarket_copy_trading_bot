@@ -16,8 +16,6 @@ const createClobClient = async (): Promise<ClobClient> => {
 
     let creds: ApiKeyCreds;
     
-    console.log(ENV.CLOB_API_KEY, ENV.CLOB_API_SECRET, ENV.CLOB_API_PASSPHRASE);
-
     // Check if API credentials are available in environment
     if (ENV.CLOB_API_KEY && ENV.CLOB_API_SECRET && ENV.CLOB_API_PASSPHRASE) {
         creds = {
@@ -37,6 +35,7 @@ const createClobClient = async (): Promise<ClobClient> => {
         wallet,
         creds,
         2, // Deployed Safe proxy wallet
+        ENV.CLOB_API_ADDRESS
     );
 
     return client;
