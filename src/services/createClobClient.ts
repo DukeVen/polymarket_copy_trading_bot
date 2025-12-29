@@ -34,8 +34,7 @@ const createClobClient = async (): Promise<ClobClient> => {
         chainId,
         wallet,
         creds,
-        1, // Deployed Safe proxy wallet
-        ENV.CLOB_API_ADDRESS
+        2, // Deployed Safe proxy wallet
     );
 
     return client;
