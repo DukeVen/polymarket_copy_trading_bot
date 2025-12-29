@@ -20,7 +20,7 @@ const test = async (clobClient: ClobClient) => {
 
         const userMarketOrder: UserMarketOrder = {
             tokenID: '33937734450055362023094845664587432566259541722569464798773247925805151729394',
-            amount: 0.1, // USD amount
+            amount: 1, // USD amount
             side: Side.BUY,
         };
 

@@ -27,7 +27,6 @@ export const ENV = {
     TARGET_ADDRESS: process.env.TARGET_ADDRESS as string,
     PROXY_WALLET: process.env.PROXY_WALLET as string,
     PRIVATE_KEY: process.env.PRIVATE_KEY as string,
-    FUNDER_ADDRESS: process.env.FUNDER_ADDRESS as string,
     CLOB_API_KEY: process.env.CLOB_API_KEY as string,
     CLOB_API_SECRET: process.env.CLOB_SECRET as string,
     CLOB_API_PASSPHRASE: process.env.CLOB_PASSPHRASE as string,
