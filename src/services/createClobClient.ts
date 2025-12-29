@@ -35,7 +35,7 @@ const createClobClient = async (): Promise<ClobClient> => {
         wallet,
         creds,
         1, // magic wallet (google login)
-        ENV.FUNDER_ADDRESS
+        ENV.PROXY_WALLET
     );
 
     return client;
