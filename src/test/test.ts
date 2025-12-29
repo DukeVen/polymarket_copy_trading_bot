@@ -28,7 +28,7 @@ const test = async (clobClient: ClobClient) => {
 
         const resp = await clobClient.createAndPostMarketOrder(
             userMarketOrder,
-            { tickSize: '0.001', negRisk: true },
+            { tickSize: '0.001', negRisk: false },
             OrderType.FAK
         );
 
