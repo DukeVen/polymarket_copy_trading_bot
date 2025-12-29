@@ -9,7 +9,7 @@ const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 
 export const main = async () => {
-    //await connectDB();
+    await connectDB();
 
     console.log(`\n${'='.repeat(50)}`);
     if (ENV.DRY_RUN) {
@@ -24,10 +24,10 @@ export const main = async () => {
 
     const clobClient = await createClobClient();
 
-    await test(clobClient);
+    // Run test orders (uncomment to use)
+    //await test(clobClient);
+    //return;
 
-    return;
-    
     // Initialize both services
     console.log('🔧 Initializing services...\n');
     
