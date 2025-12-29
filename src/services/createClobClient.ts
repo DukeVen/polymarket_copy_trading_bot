@@ -1,6 +1,5 @@
 import { Wallet } from 'ethers';
 import { ApiKeyCreds, ClobClient } from '@polymarket/clob-client';
-import { SignatureType } from '@polymarket/order-utils';
 import { ENV } from '../config/env';
 
 const PRIVATE_KEY = ENV.PRIVATE_KEY;

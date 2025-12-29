@@ -11,6 +11,7 @@ export interface PositionChangeEvent {
     curPrice: number;
     changeType: 'new' | 'increase' | 'decrease' | 'closed' | 'none';
     sizeChange: number; // Net change in position size (positive = buy, negative = sell)
+    usdcSize: number; // Actual USD amount spent/received from activity API
 }
 
 // Create a singleton event emitter for position changes

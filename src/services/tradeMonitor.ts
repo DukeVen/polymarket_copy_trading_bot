@@ -107,7 +107,7 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
     // trades = array of trade activities for that asset
     for (const [asset, trades] of tradesByAsset) {
         const firstTrade = trades[0];
-        const netSizeChange = calcNetSizeChange(trades);
+        const { netSizeChange, netUsdcSize } = calcNetChange(trades);
 
         console.log(`[MONITOR] ${"─".repeat(58)}┐`);
         console.log(`[MONITOR] │ Market: ${firstTrade.title}`);
@@ -120,7 +120,7 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
         }
         for (const trade of trades) {
             const emoji = trade.side === 'BUY' ? '🟢' : '🔴';
-            console.log(`[MONITOR]   ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price}`);
+            console.log(`[MONITOR]   ${emoji} ${trade.side.padEnd(4)} │ ${trade.size.toString().padStart(10)} shares @ $${trade.price} ($${trade.usdcSize.toFixed(2)} USD)`);
         }
 
         // Determine verdict
@@ -144,6 +144,7 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
 
         console.log(`[MONITOR] \n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
         console.log(`[MONITOR]   Net Position Change: ${netSizeChange > 0 ? '+' : ''}${netSizeChange} shares`);
+        console.log(`[MONITOR]   Net USD Amount: ${netUsdcSize > 0 ? '+' : ''}$${netUsdcSize.toFixed(2)}`);
         console.log(`[MONITOR]   ${verdictEmoji} VERDICT: ${tradeVerdict}`);
         console.log(`[MONITOR]   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
@@ -159,6 +160,7 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
                 curPrice: firstTrade.price,
                 changeType,
                 sizeChange: netSizeChange,
+                usdcSize: netUsdcSize,
             };
 
             console.log(`[MONITOR]   🔔 Emitting position change event to executor...\n`);
@@ -172,19 +174,23 @@ const processTrades = (newTrades: UserActivityInterface[], tradesByAsset: Map<st
 }
 
 
-const calcNetSizeChange = (trades: UserActivityInterface[]): number => {
+const calcNetChange = (trades: UserActivityInterface[]): { netSizeChange: number; netUsdcSize: number } => {
     let netSizeChange = 0;
+    let netUsdcSize = 0;
 
     for (const trade of trades) {
         if (trade.side === 'BUY') {
             netSizeChange += trade.size;
+            netUsdcSize += trade.usdcSize;
         } else if (trade.side === 'SELL') {
             netSizeChange -= trade.size;
+            netUsdcSize -= trade.usdcSize;
         }
     }
     netSizeChange = Math.round(netSizeChange * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
+    netUsdcSize = Math.round(netUsdcSize * PRECISION_MULTIPLIER) / PRECISION_MULTIPLIER;
 
-    return netSizeChange;
+    return { netSizeChange, netUsdcSize };
 }
 
 

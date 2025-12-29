@@ -1,4 +1,4 @@
-import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
+import { ClobClient, OrderType, Side, UserMarketOrder } from '@polymarket/clob-client';
 import { ENV } from '../config/env';
 import { getBotPositionModel, getBotSpendingModel } from '../models/userHistory';
 import getMyBalance from '../utils/getMyBalance';
@@ -132,24 +132,29 @@ const resp = await clobClient.postOrders(orders);
 */
 // TODO make so spending is recorded only on successful trades
 // Execute a market order
+// Note: For market orders, 'amount' represents USD value, not number of shares
 const executeOrder = async (
     clobClient: ClobClient,
     tokenID: string,
     side: 'BUY' | 'SELL',
-    size: number
+    usdAmount: number
 ): Promise<{ success: boolean; error?: string }> => {
     try {
         const orderSide = side === 'BUY' ? Side.BUY : Side.SELL;
         
-        const userMarketOrder = {
+        const userMarketOrder: UserMarketOrder = {
             tokenID: tokenID,
-            amount: size,
+            amount: usdAmount, // USD amount, not shares
             side: orderSide,
         };
         
         // Use createAndPostMarketOrder - convenience method that creates, signs, and posts in one call
         // FAK (Fill-And-Kill) is better for copy trading - executes partial fills instead of failing completely
-        const resp = await clobClient.createAndPostMarketOrder(userMarketOrder, undefined, OrderType.FAK);
+        const resp = await clobClient.createAndPostMarketOrder(
+            userMarketOrder, 
+            { tickSize: '0.001', negRisk: false }, 
+            OrderType.FAK
+        );
         
         if (resp.success === true) {
             return { success: true };
@@ -217,15 +222,18 @@ const updateBotPosition = async (
 };
 
 // Calculate what trade the bot should make based on target's position change
+// Uses actual USD amounts from activity API
 const calculateBotTrade = (
     sizeChange: number,
+    usdcSize: number,
     asset: string,
     title: string,
     outcome: string
 ): {
     shouldTrade: boolean;
     action: 'BUY' | 'SELL';
-    size: number;
+    usdAmount: number;
+    shares: number;
     reason: string;
 } => {
     // Get bot's current position
@@ -239,40 +247,47 @@ const calculateBotTrade = (
         return {
             shouldTrade: false,
             action: 'BUY',
-            size: 0,
+            usdAmount: 0,
+            shares: 0,
             reason: 'Position change too small to replicate'
         };
     }
     
-    // Target is buying - bot should buy the same amount
+    // Target is buying - bot should buy the same USD amount
     if (roundedSizeChange > 0) {
         return {
             shouldTrade: true,
             action: 'BUY',
-            size: roundedSizeChange,
-            reason: `Replicating target's BUY of ${roundedSizeChange} shares`
+            usdAmount: Math.abs(usdcSize),
+            shares: roundedSizeChange,
+            reason: `Replicating target's BUY of ${roundedSizeChange} shares ($${Math.abs(usdcSize).toFixed(2)} USD)`
         };
     }
     
     // Target is selling - bot should sell the same amount (if it has enough)
     const sellSize = Math.abs(roundedSizeChange);
+    const targetUsdAmount = Math.abs(usdcSize);
     
     if (botCurrentSize === 0) {
         return {
             shouldTrade: false,
             action: 'SELL',
-            size: 0,
+            usdAmount: 0,
+            shares: 0,
             reason: `⚠️ Cannot replicate SELL - bot has no position in this asset`
         };
     }
     
+    // TODO - review?
     if (botCurrentSize < sellSize) {
-        // Bot doesn't have enough shares - sell what it has
+        // Bot doesn't have enough shares - sell what it has (proportional USD amount)
+        const proportionalUsdAmount = (botCurrentSize / sellSize) * targetUsdAmount;
         return {
             shouldTrade: true,
             action: 'SELL',
-            size: botCurrentSize,
-            reason: `⚠️ Partial SELL - target sold ${sellSize} but bot only has ${botCurrentSize} shares (selling all)`
+            usdAmount: proportionalUsdAmount,
+            shares: botCurrentSize,
+            reason: `⚠️ Partial SELL - target sold ${sellSize} but bot only has ${botCurrentSize} shares (selling all, $${proportionalUsdAmount.toFixed(2)} USD)`
         };
     }
     
@@ -280,8 +295,9 @@ const calculateBotTrade = (
     return {
         shouldTrade: true,
         action: 'SELL',
-        size: sellSize,
-        reason: `Replicating target's SELL of ${sellSize} shares`
+        usdAmount: targetUsdAmount,
+        shares: sellSize,
+        reason: `Replicating target's SELL of ${sellSize} shares ($${targetUsdAmount.toFixed(2)} USD)`
     };
 };
 
@@ -292,12 +308,13 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         return;
     }
 
-    const { asset, conditionId, outcomeIndex, title, outcome, avgPrice, curPrice, changeType, sizeChange } = change;
+    const { asset, conditionId, outcomeIndex, title, outcome, avgPrice, curPrice, changeType, sizeChange, usdcSize } = change;
 
     try {
         // Calculate what the bot should do
         const botTrade = calculateBotTrade(
             sizeChange,
+            usdcSize,
             asset,
             title,
             outcome
@@ -322,19 +339,20 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         // Get current bot position
         const currentBotPosition = getBotPosition(asset);
         console.log(`[EXECUTOR] 📊 Bot's Current Position: ${currentBotPosition} shares`);
+        console.log(`[EXECUTOR] 💵 Target's USD Amount: $${Math.abs(usdcSize).toFixed(2)}`);
 
         // Check balance before trading
         const my_balance = await getMyBalance(PROXY_WALLET);
         console.log(`[EXECUTOR] 💰 Bot Balance: $${my_balance.toFixed(2)} USDC`);
 
-        // Estimate cost using market price
-        const estimatedCost = botTrade.size * (curPrice || avgPrice);
+        // Use the USD amount from botTrade (actual from activity API)
+        const estimatedCost = botTrade.usdAmount;
 
         // Check if order exceeds MAX_ORDER_AMOUNT limit
         if (botTrade.action === 'BUY' && estimatedCost > MAX_ORDER_AMOUNT) {
             console.log(`[EXECUTOR] \n⚠️ TRADE SKIPPED - EXCEEDS MAX ORDER AMOUNT`);
             console.log(`[EXECUTOR]    Market: ${title} - ${outcome}`);
-            console.log(`[EXECUTOR]    Action: ${botTrade.action} ${botTrade.size} shares`);
+            console.log(`[EXECUTOR]    Action: ${botTrade.action} ${botTrade.shares} shares`);
             console.log(`[EXECUTOR]    Estimated Cost: $${estimatedCost.toFixed(2)}`);
             console.log(`[EXECUTOR]    Max Allowed: $${MAX_ORDER_AMOUNT.toFixed(2)}`);
             console.log(`[EXECUTOR]    Exceeded By: $${(estimatedCost - MAX_ORDER_AMOUNT).toFixed(2)}\n`);
@@ -350,7 +368,7 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
             if (projectedSpend > MAX_SPEND_24H) {
                 console.log(`[EXECUTOR] \n⚠️ TRADE SKIPPED - EXCEEDS 24-HOUR SPEND LIMIT`);
                 console.log(`[EXECUTOR]    Market: ${title} - ${outcome}`);
-                console.log(`[EXECUTOR]    Action: ${botTrade.action} ${botTrade.size} shares`);
+                console.log(`[EXECUTOR]    Action: ${botTrade.action} ${botTrade.shares} shares`);
                 console.log(`[EXECUTOR]    Trade Cost: $${estimatedCost.toFixed(2)}`);
                 console.log(`[EXECUTOR]    Already Spent (24h): $${spentLast24h.toFixed(2)}`);
                 console.log(`[EXECUTOR]    Projected Total: $${projectedSpend.toFixed(2)}`);
@@ -380,9 +398,8 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         if (DRY_RUN) {
             console.log(`[EXECUTOR] \n🔷 DRY RUN MODE`);
             console.log(`[EXECUTOR]    Action: ${botTrade.action}`);
-            console.log(`[EXECUTOR]    Size: ${botTrade.size} shares`);
-            console.log(`[EXECUTOR]    Est. Price: ~$${(curPrice || avgPrice)}`);
-            console.log(`[EXECUTOR]    Est. Cost: $${estimatedCost.toFixed(2)}`);
+            console.log(`[EXECUTOR]    Size: ${botTrade.shares} shares`);
+            console.log(`[EXECUTOR]    USD Amount: $${botTrade.usdAmount.toFixed(2)}`);
             
             if (botTrade.action === 'BUY' && estimatedCost > my_balance) {
                 console.log(`[EXECUTOR]    ⚠️ Note: Would need $${estimatedCost.toFixed(2)} but only have $${my_balance.toFixed(2)}`);
@@ -390,14 +407,14 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
         } else {
             console.log(`[EXECUTOR] \n🚀 Executing Trade:`);
             console.log(`[EXECUTOR]    Action: ${botTrade.action}`);
-            console.log(`[EXECUTOR]    Size: ${botTrade.size} shares`);
-            console.log(`[EXECUTOR]    Market Price: ~$${(curPrice || avgPrice)}`);
+            console.log(`[EXECUTOR]    Size: ${botTrade.shares} shares`);
+            console.log(`[EXECUTOR]    USD Amount: $${botTrade.usdAmount.toFixed(2)}`);
 
             const result = await executeOrder(
                 clobClient,
                 asset,
                 botTrade.action,
-                botTrade.size
+                botTrade.usdAmount
             );
 
             tradeSuccess = result.success;
@@ -412,7 +429,7 @@ const processPositionChange = async (clobClient: ClobClient, change: PositionCha
 
         // Update bot's position (for both dry run and live)
         if (tradeSuccess) {
-            const actualSizeChange = botTrade.action === 'BUY' ? botTrade.size : -botTrade.size;
+            const actualSizeChange = botTrade.action === 'BUY' ? botTrade.shares : -botTrade.shares;
             const newSize = await updateBotPosition(
                 asset,
                 conditionId,
