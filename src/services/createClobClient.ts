@@ -9,13 +9,15 @@ const createClobClient = async (): Promise<ClobClient> => {
     const chainId = 137;
     const host = CLOB_HTTP_URL as string;
 
-    const wallet = new Wallet(PRIVATE_KEY as string);
+    const wallet = new Wallet(PRIVATE_KEY);
     const PROXY_WALLET = ENV.PROXY_WALLET || wallet.address;
 
     console.log('Using proxy wallet:', PROXY_WALLET);
 
     let creds: ApiKeyCreds;
     
+    console.log(ENV.CLOB_API_KEY, ENV.CLOB_API_SECRET, ENV.CLOB_API_PASSPHRASE);
+
     // Check if API credentials are available in environment
     if (ENV.CLOB_API_KEY && ENV.CLOB_API_SECRET && ENV.CLOB_API_PASSPHRASE) {
         creds = {
@@ -25,7 +27,7 @@ const createClobClient = async (): Promise<ClobClient> => {
         };
         console.log('Using stored API credentials');
     } else {
-        console.error('No API credentials found in environment variables.');
+        console.error('No API credentials found in environment variables. Exiting.');
         process.exit(1);
     }
 

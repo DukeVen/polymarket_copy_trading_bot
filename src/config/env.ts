@@ -25,11 +25,11 @@ if (!process.env.USDC_CONTRACT_ADDRESS) {
 
 export const ENV = {
     TARGET_ADDRESS: process.env.TARGET_ADDRESS as string,
-    PROXY_WALLET: process.env.PROXY_WALLET,
+    PROXY_WALLET: process.env.PROXY_WALLET as string,
     PRIVATE_KEY: process.env.PRIVATE_KEY as string,
-    CLOB_API_KEY: process.env.API_KEY as string,
-    CLOB_API_SECRET: process.env.API_SECRET as string,
-    CLOB_API_PASSPHRASE: process.env.API_PASSPHRASE as string,
+    CLOB_API_KEY: process.env.CLOB_API_KEY as string,
+    CLOB_API_SECRET: process.env.CLOB_SECRET as string,
+    CLOB_API_PASSPHRASE: process.env.CLOB_PASSPHRASE as string,
     CLOB_HTTP_URL: process.env.CLOB_HTTP_URL as string,
     CLOB_WS_URL: process.env.CLOB_WS_URL as string,
     FETCH_INTERVAL: parseInt(process.env.FETCH_INTERVAL || '1', 10),

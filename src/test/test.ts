@@ -1,4 +1,4 @@
-import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
+import { ClobClient, OrderType, Side, UserMarketOrder } from '@polymarket/clob-client';
 import { ENV } from '../config/env';
 import getMyBalance from '../utils/getMyBalance';
 
@@ -6,22 +6,54 @@ const TARGET_ADDRESS = ENV.TARGET_ADDRESS;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 
 const test = async (clobClient: ClobClient) => {
-   
-    const price = (
-        await clobClient.getLastTradePrice(
-            '7335630785946116680591336507965313288831710468958917901279210617913444658937'
-        )
-        
-    ).price;
-    console.log(price);
-    const signedOrder = await clobClient.createOrder({
-        side: Side.BUY,
-        tokenID: '7335630785946116680591336507965313288831710468958917901279210617913444658937',
-        size: 5,
-        price,
-    });
-    const resp = await clobClient.postOrder(signedOrder, OrderType.GTC);
-    console.log(resp);
+
+    console.log("testing...");
+
+    try {
+        const price = (
+            await clobClient.getLastTradePrice(
+                '33937734450055362023094845664587432566259541722569464798773247925805151729394'
+            )
+        ).price;
+
+        console.log(`✅ Last trade price fetched: $${price}`);
+
+        const userMarketOrder: UserMarketOrder = {
+            tokenID: '33937734450055362023094845664587432566259541722569464798773247925805151729394',
+            amount: 0.1, // USD amount
+            side: Side.BUY,
+        };
+
+        console.log(`\n📤 Submitting market order: ${userMarketOrder.side} $${userMarketOrder.amount}...`);
+
+        const resp = await clobClient.createAndPostMarketOrder(
+            userMarketOrder,
+            { tickSize: '0.001', negRisk: false },
+            OrderType.FAK
+        );
+
+        if (resp && resp.orderID) {
+            console.log(`✅ Order successfully created!`);
+            console.log(`   Order ID: ${resp.orderID}`);
+            console.log(`   Status: ${resp.status || 'Submitted'}`);
+            if (resp.transactionHash) {
+                console.log(`   Transaction: ${resp.transactionHash}`);
+            }
+        } else {
+            console.log(`⚠️  Order response received but no order ID:`);
+            console.log(JSON.stringify(resp, null, 2));
+        }
+    } catch (error: any) {
+        console.error(`\n❌ Test failed with error:`);
+        console.error(`   Message: ${error.message || 'Unknown error'}`);
+        if (error.response) {
+            console.error(`   Status: ${error.response.status}`);
+            console.error(`   Data:`, JSON.stringify(error.response.data, null, 2));
+        }
+        if (error.stack) {
+            console.error(`   Stack: ${error.stack}`);
+        }
+    }
 };
 
 export default test;
