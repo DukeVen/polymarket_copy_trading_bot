@@ -26,11 +26,22 @@ const test = async (clobClient: ClobClient) => {
 
         console.log(`\n📤 Submitting market order: ${userMarketOrder.side} $${userMarketOrder.amount}...`);
 
-        const resp = await clobClient.createAndPostMarketOrder(
-            userMarketOrder,
-            { tickSize: '0.001', negRisk: false },
-            OrderType.FAK
-        );
+        //const resp = await clobClient.createAndPostMarketOrder(
+        //    userMarketOrder,
+        //    { tickSize: '0.001', negRisk: false },
+        //    OrderType.FAK
+        //);
+
+        // "Limit order"
+        const order = await clobClient.createOrder({
+            tokenID: '33937734450055362023094845664587432566259541722569464798773247925805151729394',
+            price: 0.017,
+            side: Side.BUY,
+            size: 20.63
+        });
+
+        const resp = await clobClient.postOrder(order, OrderType.GTC);
+
 
         if (resp && resp.orderID) {
             console.log(`✅ Order successfully created!`);
